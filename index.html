@@ -486,58 +486,54 @@ if ('serviceWorker' in navigator) {
 
 
 </script>
-<!-- Modal obligatorio de instalación PWA -->
-<div id="installModal" style="
-  position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.95);
-  display:flex;flex-direction:column;justify-content:center;align-items:center;
-  color:#fff;font-family:Arial,sans-serif;z-index:9999;">
-  <div style="
-    background:#121212;padding:24px 32px;border-radius:12px;text-align:center;
-    max-width:400px;width:90%;">
-    <h2 style="color:#00e5ff;margin-bottom:16px;">¡Instala la app!</h2>
-    <p style="margin-bottom:24px;font-size:16px;">Para una mejor experiencia y acceso offline, instala esta aplicación.</p>
-    <button id="installAppBtn" style="
-      background:#00e5ff;color:#000;padding:12px 28px;border:none;border-radius:8px;
+  <!-- Banner superior modal para instalación PWA -->
+<div id="installBanner" style="
+  position:fixed;top:0;left:0;width:100%;background:#00e5ff;color:#000;
+  display:flex;flex-direction:column;align-items:center;padding:16px 20px;
+  box-shadow:0 2px 12px rgba(0,0,0,0.4);font-size:18px;z-index:2000;
+  display:none;text-align:center;">
+  <strong>¡Instala la app para acceder rápido!</strong>
+  <span style="margin:8px 0;font-size:14px;">Se recomienda instalar para un mejor rendimiento y acceso offline.</span>
+  <div style="display:flex;gap:10px;">
+    <button id="installBtn" style="
+      background:#000;color:#00e5ff;padding:10px 20px;border:none;border-radius:8px;
       font-weight:bold;cursor:pointer;font-size:16px;">Instalar</button>
+    <button id="closeInstallBanner" style="
+      background:transparent;color:#000;padding:10px 20px;border:2px solid #000;
+      border-radius:8px;font-weight:bold;cursor:pointer;font-size:16px;">Cerrar</button>
   </div>
 </div>
 
 <script>
-const installModal = document.getElementById('installModal');
-const installBtn = document.getElementById('installAppBtn');
 let deferredPrompt;
+const installBanner = document.getElementById('installBanner');
+const installBtn = document.getElementById('installBtn');
+const closeBtn = document.getElementById('closeInstallBanner');
 
-// Detectar si la app está instalada
-const isStandalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
-if(isStandalone){
-  console.log('App abierta desde ícono instalado');
-  installModal.style.display = 'none'; // ocultar modal
-  // Opcional: aquí podrías inicializar la app nativa directamente
-}else{
-  // Esperar evento para instalación
-  window.addEventListener('beforeinstallprompt', (e) => {
-    e.preventDefault();
-    deferredPrompt = e;
-    installModal.style.display = 'flex'; // mostrar modal al cargar
-  });
-}
+// Detectar si la PWA es instalable
+window.addEventListener('beforeinstallprompt', (e) => {
+  e.preventDefault();            
+  deferredPrompt = e;
+  installBanner.style.display = 'flex'; // mostrar banner al cargar
+});
 
 // Botón instalar
 installBtn.addEventListener('click', async () => {
   if (!deferredPrompt) return;
-  deferredPrompt.prompt();
+  deferredPrompt.prompt(); // mostrar prompt nativo
   const choice = await deferredPrompt.userChoice;
   console.log('Resultado instalación PWA:', choice.outcome);
-  if(choice.outcome === 'accepted'){
-    // Una vez instalada, se abrirá automáticamente desde el ícono
-    // Opcionalmente, podemos redirigir a la misma URL para simular app nativa
-    window.location.reload(); 
-  }
+  deferredPrompt = null;
+  installBanner.style.display = 'none';
+});
+
+// Botón cerrar
+closeBtn.addEventListener('click', () => {
+  installBanner.style.display = 'none';
 });
 </script>
-
-  
 </body>
 </html>
+
 
 
