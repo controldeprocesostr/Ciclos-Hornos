@@ -282,11 +282,11 @@ function attachLive(cicloId){
       const val = ch.val() || {};
       arr.push({
         hora: val.hora || horaAhoraHHMM(),
-        zona1: val.zona1 !== undefined && val.zona1 !== "" ? parseFloat(val.zona1) : null,
-        zona2: val.zona2 !== undefined && val.zona2 !== "" ? parseFloat(val.zona2) : null,
-        zona3: val.zona3 !== undefined && val.zona3 !== "" ? parseFloat(val.zona3) : null,
-        zona4: val.zona4 !== undefined && val.zona4 !== "" ? parseFloat(val.zona4) : null,
-        setPoint: val.setPoint !== undefined && val.setPoint !== "" ? parseFloat(val.setPoint) : null
+        zona1: (val.zona1 !== undefined && val.zona1 !== "" && val.zona1 != 0) ? parseFloat(val.zona1) : null,
+        zona2: (val.zona2 !== undefined && val.zona2 !== "" && val.zona2 != 0) ? parseFloat(val.zona2) : null,
+        zona3: (val.zona3 !== undefined && val.zona3 !== "" && val.zona3 != 0) ? parseFloat(val.zona3) : null,
+        zona4: (val.zona4 !== undefined && val.zona4 !== "" && val.zona4 != 0) ? parseFloat(val.zona4) : null,
+        setPoint: (val.setPoint !== undefined && val.setPoint !== "" && val.setPoint != 0) ? parseFloat(val.setPoint) : null
       });
     });
     arr.sort((a,b)=> (a.hora||'').localeCompare(b.hora||''));
@@ -536,6 +536,7 @@ closeBtn.addEventListener('click', () => {
 
 </body>
 </html>
+
 
 
 
