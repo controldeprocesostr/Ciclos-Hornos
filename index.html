@@ -401,7 +401,7 @@ $('btnGuardar').addEventListener('click', async ()=>{
       zona1: parseFloat(tr.querySelector('.zona1').value) || 0,
       zona2: parseFloat(tr.querySelector('.zona2').value) || 0,
       zona3: parseFloat(tr.querySelector('.zona3').value) || 0,
-      zona4: tr.querySelector('.zona4').value ? parseFloat(tr.querySelector('.zona4').value) : null,
+      zona4: parseFloat(tr.querySelector('.zona4').value) || null,
       setPoint: parseFloat(tr.querySelector('.setPoint').value) || 0
     };
     if(existentes[hora]){
@@ -536,6 +536,7 @@ closeBtn.addEventListener('click', () => {
 
 </body>
 </html>
+
 
 
 
