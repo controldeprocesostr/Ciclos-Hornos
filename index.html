@@ -296,7 +296,7 @@ function attachLive(cicloId){
     chart.data.datasets[0].data = arr.map(r=> r.zona1);
     chart.data.datasets[1].data = arr.map(r=> r.zona2);
     chart.data.datasets[2].data = arr.map(r=> r.zona3);
-    chart.data.datasets[3].data = arr.map(r=> r.zona4)!== undefined ? r.zona4 : null);
+    chart.data.datasets[3].data = arr.map(r=> r.zona4);
     chart.data.datasets[4].data = arr.map(r=> r.setPoint);
     chart.update();
 
@@ -536,6 +536,7 @@ closeBtn.addEventListener('click', () => {
 
 </body>
 </html>
+
 
 
 
