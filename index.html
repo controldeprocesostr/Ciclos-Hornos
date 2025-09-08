@@ -289,7 +289,7 @@ function attachLive(cicloId){
         setPoint: (val.setPoint !== undefined && val.setPoint !== "" && val.setPoint != 0) ? parseFloat(val.setPoint) : null
       });
     });
-    arr.sort((a,b)=> (a.hora||'').localeCompare(b.hora||''));
+    
 
     // Actualizar la gráfica con TODAS las lecturas
     chart.data.labels = arr.map(r=> r.hora);
@@ -536,6 +536,7 @@ closeBtn.addEventListener('click', () => {
 
 </body>
 </html>
+
 
 
 
