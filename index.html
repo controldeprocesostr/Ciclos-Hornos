@@ -177,6 +177,15 @@ function horaAhoraHHMM(){
   const d = new Date(); return pad2(d.getHours())+':'+pad2(d.getMinutes());
 }
 
+function toAMPM(hhmm){
+  if(!hhmm) return '';
+  const [h,m] = hhmm.split(':').map(Number);
+  let hour = h % 12 || 12;
+  const ampm = h >= 12 ? 'PM' : 'AM';
+  return `${hour}:${pad2(m)} ${ampm}`;
+}
+
+
 /* ===== State ===== */
 let currentCicloId = "";   // id en ciclosActivos
 let liveRef = null;
@@ -270,7 +279,8 @@ function attachLive(cicloId){
     if(meta.horaInicio) $('horaInicio').value = meta.horaInicio;
     if(meta.horaFin) $('horaFin').value = meta.horaFin;
     if(meta.operarioInicio) $('operarioInicio').value = meta.operarioInicio;
-    $('cabecera').textContent = `Ciclo: ${meta.horno||''} | ${meta.fecha||''} | ${meta.turno||''} | inicio: ${meta.horaInicio||''} | fin: ${meta.horaFin||'Pendiente'} | operario inicio: ${meta.operarioInicio||''}`;
+    $('cabecera').textContent = `Ciclo: ${meta.horno||''} | ${meta.fecha||''} | ${meta.turno||''} | inicio: ${toAMPM(meta.horaInicio)||''} | fin: ${meta.horaFin ? toAMPM(meta.horaFin) : 'Pendiente'} | operario inicio: ${meta.operarioInicio||''}`;
+
   });
 
   // live lecturas listener
@@ -292,7 +302,7 @@ function attachLive(cicloId){
     
 
     // Actualizar la gráfica con TODAS las lecturas
-    chart.data.labels = arr.map(r=> r.hora);
+    chart.data.labels = arr.map(r=> toAMPM(r.hora));
     chart.data.datasets[0].data = arr.map(r=> r.zona1);
     chart.data.datasets[1].data = arr.map(r=> r.zona2);
     chart.data.datasets[2].data = arr.map(r=> r.zona3);
@@ -536,6 +546,7 @@ closeBtn.addEventListener('click', () => {
 
 </body>
 </html>
+
 
 
 
