@@ -30,7 +30,6 @@
   .btn-outline{background:transparent;border:2px solid var(--accent);color:var(--accent)}
   .btn-danger{background:var(--accent-2);color:#000}
   .grid4{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
-  .grid5{display:grid;grid-template-columns:repeat(5,1fr);gap:12px}
   .actions{display:flex;gap:10px;align-items:center}
   .hint{color:var(--muted);font-size:13px;margin-top:8px}
   .table-wrap{overflow:auto;margin-top:12px;border-radius:8px;border:1px solid #222}
@@ -43,11 +42,10 @@
   .cabecera{color:var(--muted);font-size:13px;margin-top:10px}
   @media (max-width:900px){
     .grid4{grid-template-columns:repeat(2,1fr)}
-    .grid5{grid-template-columns:repeat(2,1fr)}
     canvas{height:320px !important}
   }
   @media (max-width:520px){
-    .grid4,.grid5{grid-template-columns:1fr}
+    .grid4{grid-template-columns:1fr}
     .actions{flex-direction:column;align-items:stretch}
   }
 </style>
@@ -62,6 +60,7 @@
       <div>
         <label for="horno">Horno</label>
         <select id="horno">
+          <option value="">-- Selecciona --</option>
           <option>Horno 5</option><option>Horno 7-3</option><option>Horno 9-1</option>
           <option>Horno 9-2</option><option>Horno Italiano</option><option>Horno 7-4</option>
           <option>Horno 7-5</option><option>Horno 9-3</option><option>Horno 10</option>
@@ -76,6 +75,7 @@
       <div>
         <label for="turno">Turno</label>
         <select id="turno">
+          <option value="">-- Selecciona --</option>
           <option value="T1">T1</option><option value="T2">T2</option>
         </select>
       </div>
@@ -109,7 +109,7 @@
         </div>
       </div>
     </div>
-    <div class="hint">Si existe un ciclo activo (mismo Horno/Fecha/Turno) aparecerá en "Ciclos activos" — selecciónalo para continuar.</div>
+    <div class="hint">Si existe un ciclo activo (mismo Horno/Fecha/Turno) aparecerá en "Ciclos activos".</div>
   </div>
 
   <!-- LECTURAS -->
@@ -140,8 +140,6 @@
       <button id="btnGuardar" class="btn-primary" type="button">Guardar lecturas</button>
       <button id="btnFinalizar" class="btn-danger" type="button">Finalizar ciclo</button>
     </div>
-
-    <div class="hint" style="margin-top:8px">Al finalizar se pedirá operario que finaliza y observaciones; el ciclo pasará a históricos y se limpiará la vista.</div>
   </div>
 
   <!-- GRAFICA -->
@@ -176,7 +174,6 @@ function addHoursToHHMM(hhmm, plus=10){
 function horaAhoraHHMM(){
   const d = new Date(); return pad2(d.getHours())+':'+pad2(d.getMinutes());
 }
-
 function toAMPM(hhmm){
   if(!hhmm) return '';
   const [h,m] = hhmm.split(':').map(Number);
@@ -185,22 +182,20 @@ function toAMPM(hhmm){
   return `${hour}:${pad2(m)} ${ampm}`;
 }
 
-
 /* ===== State ===== */
-let currentCicloId = "";   // id en ciclosActivos
+let currentCicloId = "";   
 let liveRef = null;
 
 /* ===== Init defaults ===== */
 $('fecha').value = hoyISO();
 $('horaInicio').value = horaAhoraHHMM();
 $('horaFin').value = addHoursToHHMM($('horaInicio').value,10);
+$('horno').value = '';
+$('turno').value = '';
+$('operarioInicio').value = '';
+$('selActivos').innerHTML = '<option value="">-- Ninguno --</option>';
 
-/* si cambian inputs que afectan filtro, recarga select */
-['horno','fecha','turno'].forEach(id => {
-  $(id).addEventListener('change', cargarActivosSelect);
-});
-
-/* ===== Table utilities ===== */
+/* ===== Utilidades tabla ===== */
 function bindDeletes(){
   document.querySelectorAll('#tbody .del').forEach(btn=>{
     btn.onclick = ()=> btn.closest('tr').remove();
@@ -224,20 +219,20 @@ $('btnAgregarFila').onclick = ()=>{
   bindDeletes();
 };
 
-/* ===== Chart setup ===== */
+/* ===== Gráfica ===== */
 const chart = new Chart($('chart').getContext('2d'), {
   type:'line',
   data:{ labels: [], datasets:[
     {label:'Zona 1', data:[], borderColor:'red', fill:false, tension:0.2},
     {label:'Zona 2', data:[], borderColor:'green', fill:false, tension:0.2},
     {label:'Zona 3', data:[], borderColor:'blue', fill:false, tension:0.2},
-    {label:'Zona 4', data:[], borderColor:'blue', fill:false, tension:0.2},
+    {label:'Zona 4', data:[], borderColor:'purple', fill:false, tension:0.2},
     {label:'SetPoint', data:[], borderColor:'orange', borderDash:[6,4], fill:false, tension:0}
   ]},
   options:{responsive:true,maintainAspectRatio:false,animation:false}
 });
 
-/* ===== Load active cycles for dropdown (filtered) ===== */
+/* ===== Cargar activos ===== */
 async function cargarActivosSelect(){
   const horno = $('horno').value, fecha = $('fecha').value, turno = $('turno').value;
   const snap = await db.ref('ciclosActivos').once('value');
@@ -245,161 +240,106 @@ async function cargarActivosSelect(){
   sel.innerHTML = `<option value="">-- Ninguno --</option>`;
   snap.forEach(ch=>{
     const meta = ch.val().meta || {};
-    // show cycles that match selected Horno+Fecha+Turno for convenience
     if(meta.horno === horno && meta.fecha === fecha && meta.turno === turno){
       const opt = document.createElement('option');
       opt.value = ch.key;
-      opt.textContent = `${meta.horno} • ${meta.fecha} • ${meta.turno} • ${meta.horaInicio || '--'}`;
+      opt.textContent = `${meta.horno} • ${meta.fecha} • ${meta.turno} • ${meta.horaInicio||'--'}`;
       sel.appendChild(opt);
     }
   });
 }
-
-/* wire recargar button */
 $('btnRecargar').addEventListener('click', cargarActivosSelect);
+['horno','fecha','turno'].forEach(id=> $(id).addEventListener('change', cargarActivosSelect));
 
-/* auto load when page opens */
-cargarActivosSelect();
-
-/* ===== Attach / detach live listener for selected cycle ===== */
 function detachLive(){
-  if(liveRef){ liveRef.off(); liveRef = null; }
-  chart.data.labels = []; chart.data.datasets.forEach(ds=>ds.data=[]); chart.update();
-  $('cabecera').textContent = '';
-  currentCicloId = "";
+  if(liveRef){ liveRef.off(); liveRef=null; }
+  chart.data.labels=[]; chart.data.datasets.forEach(ds=>ds.data=[]); chart.update();
+  $('cabecera').textContent='';
+  currentCicloId="";
 }
-
 function attachLive(cicloId){
   detachLive();
   if(!cicloId) return;
-  currentCicloId = cicloId;
-  // load meta
+  currentCicloId=cicloId;
   db.ref(`ciclosActivos/${cicloId}/meta`).once('value').then(s=>{
-    const meta = s.val() || {};
-    if(meta.horaInicio) $('horaInicio').value = meta.horaInicio;
-    if(meta.horaFin) $('horaFin').value = meta.horaFin;
-    if(meta.operarioInicio) $('operarioInicio').value = meta.operarioInicio;
-    $('cabecera').textContent = `Ciclo: ${meta.horno||''} | ${meta.fecha||''} | ${meta.turno||''} | inicio: ${toAMPM(meta.horaInicio)||''} | fin: ${meta.horaFin ? toAMPM(meta.horaFin) : 'Pendiente'} | operario inicio: ${meta.operarioInicio||''}`;
-
+    const meta=s.val()||{};
+    $('horaInicio').value=meta.horaInicio||horaAhoraHHMM();
+    $('horaFin').value=meta.horaFin||addHoursToHHMM(meta.horaInicio||horaAhoraHHMM(),10);
+    $('operarioInicio').value=meta.operarioInicio||'';
+    $('cabecera').textContent=`Ciclo: ${meta.horno||''} | ${meta.fecha||''} | ${meta.turno||''}`;
   });
-
-  // live lecturas listener
-  liveRef = db.ref(`ciclosActivos/${cicloId}/lecturas`);
- liveRef.on('value', snap=>{
-    // Convertir todas las lecturas en un arreglo ordenado por hora
-    const arr = [];
-    snap.forEach(ch => {
-      const val = ch.val() || {};
-      arr.push({
-        hora: val.hora || horaAhoraHHMM(),
-        zona1: (val.zona1 !== undefined && val.zona1 !== "" && val.zona1 != 0) ? parseFloat(val.zona1) : null,
-        zona2: (val.zona2 !== undefined && val.zona2 !== "" && val.zona2 != 0) ? parseFloat(val.zona2) : null,
-        zona3: (val.zona3 !== undefined && val.zona3 !== "" && val.zona3 != 0) ? parseFloat(val.zona3) : null,
-        zona4: (val.zona4 !== undefined && val.zona4 !== "" && val.zona4 != 0) ? parseFloat(val.zona4) : null,
-        setPoint: (val.setPoint !== undefined && val.setPoint !== "" && val.setPoint != 0) ? parseFloat(val.setPoint) : null
-      });
+  liveRef=db.ref(`ciclosActivos/${cicloId}/lecturas`);
+  liveRef.on('value',snap=>{
+    const arr=[];
+    snap.forEach(ch=>{
+      const v=ch.val()||{};
+      arr.push({hora:v.hora||horaAhoraHHMM(),zona1:v.zona1||null,zona2:v.zona2||null,zona3:v.zona3||null,zona4:v.zona4||null,setPoint:v.setPoint||null});
     });
-    
-
-    // Actualizar la gráfica con TODAS las lecturas
-    chart.data.labels = arr.map(r=> toAMPM(r.hora));
-    chart.data.datasets[0].data = arr.map(r=> r.zona1);
-    chart.data.datasets[1].data = arr.map(r=> r.zona2);
-    chart.data.datasets[2].data = arr.map(r=> r.zona3);
-    chart.data.datasets[3].data = arr.map(r=> r.zona4);
-    chart.data.datasets[4].data = arr.map(r=> r.setPoint);
+    chart.data.labels=arr.map(r=>toAMPM(r.hora));
+    chart.data.datasets.forEach((ds,i)=>ds.data=arr.map(r=>[r.zona1,r.zona2,r.zona3,r.zona4,r.setPoint][i]));
     chart.update();
-
-
-    // populate table with existing lecturas (replace tbody)
-    const tbody = $('tbody');
-    tbody.innerHTML = '';
-    if(arr.length === 0){
-      // keep one empty row
-      const tr = document.createElement('tr');
-      tr.innerHTML = `<td><input type="time" class="hora" value="${horaAhoraHHMM()}"></td>
-        <td><input type="number" class="zona1" step="0.1"></td>
-        <td><input type="number" class="zona2" step="0.1"></td>
-        <td><input type="number" class="zona3" step="0.1"></td>
-        <td><input type="number" class="zona4" step="0.1"></td>
-        <td><input type="number" class="setPoint" step="0.1"></td>
-        <td><button class="del" type="button" style="background:var(--accent);color:#000">✕</button></td>`;
-      tbody.appendChild(tr);
-    } else {
-      arr.forEach(item=>{
-        const tr = document.createElement('tr');
-        tr.innerHTML = `<td><input type="time" class="hora" value="${item.hora||''}"></td>
-          <td><input type="number" class="zona1" step="0.1" value="${item.zona1||''}"></td>
-          <td><input type="number" class="zona2" step="0.1" value="${item.zona2||''}"></td>
-          <td><input type="number" class="zona3" step="0.1" value="${item.zona3||''}"></td>
-          <td><input type="number" class="zona4" step="0.1" value="${item.zona4||''}"></td>
-          <td><input type="number" class="setPoint" step="0.1" value="${item.setPoint||''}"></td>
-          <td><button class="del" type="button" style="background:var(--accent);color:#000">✕</button></td>`;
-        tbody.appendChild(tr);
-      });
-    }
-    bindDeletes();
   });
 }
-
-/* when user selects an active cycle from dropdown */
-$('selActivos').addEventListener('change', async (e)=>{
-  const id = e.target.value;
+$('selActivos').addEventListener('change',e=>{
+  const id=e.target.value;
   if(!id){ detachLive(); return; }
   attachLive(id);
 });
 
-/* ===== Start new cycle ===== */
-$('btnNuevo').addEventListener('click', async ()=>{
-  const horno = $('horno').value;
-  const fecha = $('fecha').value;
-  const turno = $('turno').value;
+/* ===== Iniciar ciclo ===== */
+$('btnNuevo').addEventListener('click', async ()=> {
+  const horno = $('horno').value.trim();
+  const fecha = $('fecha').value.trim();
+  const turno = $('turno').value.trim();
   const horaInicio = $('horaInicio').value || horaAhoraHHMM();
   const horaFin = $('horaFin').value || addHoursToHHMM(horaInicio,10);
-  const operarioInicio = $('operarioInicio').value || '';
+  const operarioInicio = $('operarioInicio').value.trim();
 
   if(!horno || !fecha || !turno){
-    alert('Completa Horno, Fecha y Turno.');
+    alert('⚠️ Debes seleccionar Horno, Fecha y Turno antes de iniciar.');
     return;
   }
 
- // VALIDAR SI YA EXISTE UN CICLO ACTIVO CON MISMO HORNO, FECHA Y TURNO
   const snapshot = await db.ref('ciclosActivos').once('value');
-  let cicloExistente = false;
+  let duplicado = false;
   snapshot.forEach(ch=>{
     const meta = ch.val().meta || {};
     if(meta.horno===horno && meta.fecha===fecha && meta.turno===turno){
-      cicloExistente = true;
+      duplicado = true;
     }
   });
-  if(cicloExistente){
-    alert('Ya existe un ciclo activo para este horno, fecha y turno. No puedes iniciar otro.');
+  if(duplicado){
+    alert('🚫 Ya existe un ciclo activo para este Horno, Fecha y Turno.');
     return;
   }
- 
+
   const meta = { horno, fecha, turno, horaInicio, horaFin, operarioInicio };
   const newRef = await db.ref('ciclosActivos').push({ meta, lecturas: {} });
-  // refresh select and auto-select
   await cargarActivosSelect();
   $('selActivos').value = newRef.key;
   attachLive(newRef.key);
-  alert('Ciclo iniciado.');
+  alert('✅ Ciclo iniciado correctamente.');
 });
 
-/* ===== Save readings into current cycle ===== */
-$('btnGuardar').addEventListener('click', async ()=>{
+/* ===== Guardar lecturas ===== */
+$('btnGuardar').addEventListener('click', async ()=> {
   if(!currentCicloId){
-    alert('Primero inicia o selecciona un ciclo activo.');
+    alert('⚠️ Primero inicia o selecciona un ciclo activo.');
     return;
   }
+
   const rows = Array.from(document.querySelectorAll('#tbody tr'));
-  if(rows.length===0){ alert('No hay lecturas.'); return; }
+  if(rows.length === 0){
+    alert('No hay lecturas para guardar.');
+    return;
+  }
 
   const refLecturas = db.ref(`ciclosActivos/${currentCicloId}/lecturas`);
   const snap = await refLecturas.once('value');
   const existentes = {};
   snap.forEach(ch => {
-    if (ch.val() && ch.val().hora) existentes[ch.val().hora] = ch.key;
+    const val = ch.val();
+    if(val && val.hora) existentes[val.hora] = ch.key;
   });
 
   const ops = [];
@@ -414,52 +354,49 @@ $('btnGuardar').addEventListener('click', async ()=>{
       zona4: tr.querySelector('.zona4').value === '' ? null : parseFloat(tr.querySelector('.zona4').value),
       setPoint: tr.querySelector('.setPoint').value === '' ? null : parseFloat(tr.querySelector('.setPoint').value)
     };
+
     if(existentes[hora]){
-      // actualizar si ya existe
       ops.push(refLecturas.child(existentes[hora]).set(data));
     } else {
-      // crear nueva
       ops.push(refLecturas.push(data));
     }
   }
 
-  if(ops.length===0){ alert('No hay lecturas válidas.'); return; }
+  if(ops.length === 0){
+    alert('No hay lecturas válidas.');
+    return;
+  }
+
   await Promise.all(ops);
-  alert('Lecturas guardadas/actualizadas correctamente.');
+  alert('✅ Lecturas guardadas o actualizadas correctamente.');
 });
 
-/* ===== Finalize cycle (move to historicos) ===== */
-$('btnFinalizar').addEventListener('click', async ()=>{
+/* ===== Finalizar ciclo ===== */
+$('btnFinalizar').addEventListener('click', async ()=> {
   if(!currentCicloId){
     alert('Selecciona o inicia primero un ciclo activo.');
     return;
   }
-  // confirm and gather final data
+
   const horaFinPrompt = prompt('Hora fin del ciclo (HH:MM):', $('horaFin').value || horaAhoraHHMM());
   if(horaFinPrompt === null) return;
   const operarioFin = prompt('Operario que finaliza:', '');
   if(operarioFin === null) return;
-  const observaciones = prompt('Observaciones (opcional):','') || '';
+  const observaciones = prompt('Observaciones (opcional):', '') || '';
 
-  // read node
   const snap = await db.ref(`ciclosActivos/${currentCicloId}`).once('value');
   const node = snap.val();
   if(!node){ alert('No se encontró el ciclo activo.'); return; }
 
-  // update meta
   node.meta = node.meta || {};
   node.meta.horaFin = horaFinPrompt;
   node.meta.operarioFin = operarioFin;
   node.meta.observaciones = observaciones;
 
-  // push to historicos
   await db.ref('historicos').push(node);
-  // remove active
   await db.ref(`ciclosActivos/${currentCicloId}`).remove();
 
-  // cleanup UI
   detachLive();
-  // reset table to single empty row
   $('tbody').innerHTML = `<tr>
     <td><input type="time" class="hora" value="${horaAhoraHHMM()}"></td>
     <td><input type="number" class="zona1" step="0.1"></td>
@@ -470,82 +407,17 @@ $('btnFinalizar').addEventListener('click', async ()=>{
     <td><button class="del" type="button" style="background:var(--accent);color:#000">✕</button></td>
   </tr>`;
   bindDeletes();
-  // reset meta inputs except date
   $('horaInicio').value = horaAhoraHHMM();
   $('horaFin').value = addHoursToHHMM($('horaInicio').value,10);
   $('operarioInicio').value = '';
   await cargarActivosSelect();
-
-  alert('Ciclo finalizado y movido a históricos.');
-});
-
-/* ===== Auto-select single active cycle if found on load ===== */
-(async function autoSelectIfOne(){
-  await cargarActivosSelect();
-  const sel = $('selActivos');
-  if(sel.options.length===2 && sel.options[1].value){
-    sel.selectedIndex = 1;
-    sel.dispatchEvent(new Event('change'));
-  }
-})();
-
-if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register('sw.js')
-  .then(() => console.log('Service Worker registrado'))
-  .catch(err => console.error('Error SW:', err));
-}
-
-
-</script>
- <!-- Banner superior modal para instalación PWA -->
-<div id="installBanner" style="
-  position:fixed;top:0;left:0;width:100%;background:#00e5ff;color:#000;
-  display:flex;flex-direction:column;align-items:center;padding:16px 20px;
-  box-shadow:0 2px 12px rgba(0,0,0,0.4);font-size:18px;z-index:2000;
-  display:none;text-align:center;">
-  <strong>¡Instala la app para acceder rápido!</strong>
-  <span style="margin:8px 0;font-size:14px;">Se recomienda instalar para un mejor rendimiento y acceso offline.</span>
-  <div style="display:flex;gap:10px;">
-    <button id="installBtn" style="
-      background:#000;color:#00e5ff;padding:10px 20px;border:none;border-radius:8px;
-      font-weight:bold;cursor:pointer;font-size:16px;">Instalar</button>
-    <button id="closeInstallBanner" style="
-      background:transparent;color:#000;padding:10px 20px;border:2px solid #000;
-      border-radius:8px;font-weight:bold;cursor:pointer;font-size:16px;">Cerrar</button>
-  </div>
-</div>
-
-<script>
-let deferredPrompt;
-const installBanner = document.getElementById('installBanner');
-const installBtn = document.getElementById('installBtn');
-const closeBtn = document.getElementById('closeInstallBanner');
-
-// Detectar si la PWA es instalable
-window.addEventListener('beforeinstallprompt', (e) => {
-  e.preventDefault();            
-  deferredPrompt = e;
-  installBanner.style.display = 'flex'; // mostrar banner al cargar
-});
-
-// Botón instalar
-installBtn.addEventListener('click', async () => {
-  if (!deferredPrompt) return;
-  deferredPrompt.prompt(); // mostrar prompt nativo
-  const choice = await deferredPrompt.userChoice;
-  console.log('Resultado instalación PWA:', choice.outcome);
-  deferredPrompt = null;
-  installBanner.style.display = 'none';
-});
-
-// Botón cerrar
-closeBtn.addEventListener('click', () => {
-  installBanner.style.display = 'none';
+  alert('✅ Ciclo finalizado y movido a históricos.');
 });
 </script>
-
 </body>
 </html>
+
+
 
 
 
