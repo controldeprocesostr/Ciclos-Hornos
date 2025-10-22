@@ -288,8 +288,7 @@ function attachLive(cicloId){
       });
     });
 
-    // Ordenar por hora
-    arr.sort((a,b)=>a.hora.localeCompare(b.hora));
+    
 
     // === Gráfica ===
     chart.data.labels = arr.map(r => toAMPM(r.hora));
@@ -471,6 +470,7 @@ $('btnFinalizar').addEventListener('click', async ()=> {
 </script>
 </body>
 </html>
+
 
 
 
