@@ -584,8 +584,7 @@ function attachLive(cicloId){
         zona4: v.zona4 ?? '',
         setPoint: v.setPoint ?? ''
       });
-    });
-    arr.sort((a,b)=>a.hora.localeCompare(b.hora));
+    });
 
     chart.data.labels = arr.map(r => toAMPM(r.hora));
     chart.data.datasets[0].data = arr.map(r => (r.zona1!=='' && r.zona1!=null && !isNaN(r.zona1)) ? Number(r.zona1) : null);
