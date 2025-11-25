@@ -1,3 +1,4198 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#121212">
+  <title>Registro de Temperaturas + Inventario</title>
+
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <!-- Firebase compat (v9 compat) -->
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+
+  <!-- PDF.js viewer para visor interno de planos -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/web/viewer.css">
+  <script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.js"></script>
+  <!-- Usamos el viewer empaquetado -->
+  <script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/web/viewer.js"></script>
+
+  <style>
+    :root{
+      --bg:#121212; --panel:#1e1e1e; --panel-2:#151515;
+      --accent:#00e5ff; --accent-2:#ffae00; --muted:#9aa9b1;
+      --input-bg:#fff; --input-color:#000;
+      --ok:#10b981; --warn:#f59e0b; --border:#2b2b2b; --soft:#222;
+    }
+    html,body{height:100%;margin:0;background:var(--bg);font-family:Arial,Helvetica,sans-serif;color:#fff}
+    .wrap{max-width:1120px;margin:12px auto;padding:12px}
+
+    /* Header */
+    .header-bar{display:flex;align-items:center;gap:10px;justify-content:center;position:relative;margin-bottom:10px}
+    .header-title{color:var(--accent);font-weight:800;font-size:22px;text-align:center}
+    .hamb{position:absolute;left:0;top:50%;transform:translateY(-50%);background:transparent;border:1px solid var(--soft);color:#fff;border-radius:8px;padding:8px 10px;cursor:pointer}
+    .hamb:active{filter:brightness(.9)}
+
+    /* Cards */
+    .card{background:#1b1b1b;border:1px solid #2e2e2e;border-radius:12px;padding:14px;margin-bottom:14px;box-shadow:0 2px 6px rgba(0,0,0,.35);transition:transform .15s ease, box-shadow .2s ease}
+    .card:hover{transform:translateY(-2px);box-shadow:0 4px 10px rgba(0,0,0,.5)}
+
+    label{display:block;margin:6px 0 4px;font-weight:700;color:#ddd}
+    input, select, textarea, button{box-sizing:border-box;border-radius:6px;border:1px solid var(--border);padding:8px}
+    input,select,textarea{width:100%;background:var(--input-bg);color:var(--input-color)}
+    input, select, textarea { background:#fff; color:#000; border:1px solid #ccc }
+
+    button{cursor:pointer;border:none;font-weight:700}
+    .btn-primary{background:var(--accent);color:#000}
+    .btn-outline{background:transparent;border:2px solid var(--accent);color:var(--accent)}
+    .btn-danger{background:var(--accent-2);color:#000}
+    .grid4{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+    .actions{display:flex;gap:10px;align-items:center}
+    .hint{color:var(--muted);font-size:13px;margin-top:8px}
+    .table-wrap{overflow:auto;margin-top:12px;border-radius:8px;border:1px solid var(--soft)}
+    table{width:100%;border-collapse:collapse;background:transparent}
+    th,td{padding:10px;border-bottom:1px solid var(--border);text-align:center;color:#eee}
+    th{background:#171717}
+    td input{width:100%;padding:6px;border-radius:4px;border:1px solid #ccc;background:#fff;color:#000}
+    .btn-row{display:flex;gap:10px;margin-top:12px;flex-wrap:wrap}
+    canvas{width:100% !important;height:360px !important;background:#151515;border-radius:6px}
+    .cabecera{color:var(--muted);font-size:13px;margin-top:10px}
+    .hidden{display:none!important}
+
+    /* Drawer */
+    .drawer-mask{position:fixed;inset:0;background:rgba(0,0,0,.55);display:none;z-index:900}
+    .drawer{position:fixed;right:0;top:0;height:100%;width:300px;max-width:92vw;background:#0f0f0f;border-left:1px solid var(--soft);transform:translateX(100%);transition:transform .25s ease;z-index:1000;display:flex;flex-direction:column}
+    .drawer.open{transform:translateX(0)}
+    .drawer .head{padding:14px;border-bottom:1px solid var(--soft);font-weight:800;color:#fff;display:flex;justify-content:space-between;align-items:center}
+    .drawer .head button{background:transparent;color:#fff;border:1px solid var(--soft)}
+    .drawer .body{padding:10px;display:flex;flex-direction:column;gap:8px}
+    .drawer .opt{background:#121212;border:1px solid var(--soft);padding:12px;border-radius:10px;cursor:pointer}
+    .drawer .opt:hover{filter:brightness(1.05)}
+    .drawer small{color:#9aa9b1}
+
+    /* Inventario toolbar + tabs */
+    .inv-toolbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px}
+    .inv-pill{background:#161616;border:1px solid var(--soft);border-radius:10px;padding:6px 8px;display:flex;gap:8px;align-items:center}
+    .inv-pill label{margin:0;color:#cfeaf0;font-weight:700}
+    .inv-toolbar select,.inv-toolbar input[type="text"]{border:1px solid #ccc;border-radius:8px;padding:6px 8px;background:#fff;color:#000;min-width:140px}
+    .inv-btn{border:1px solid var(--soft);background:#0f0f0f;border-radius:8px;padding:8px 12px;cursor:pointer;color:#fff}
+    .inv-btn.primary{background:var(--accent);color:#000;border-color:var(--accent);font-weight:800}
+    .inv-info{font-size:12px;color:#b4c1c8}
+    .inv-tabs{display:flex;gap:8px;margin:10px 0 14px}
+    .inv-tab{border:1px solid var(--soft);background:#0f0f0f;border-radius:999px;padding:6px 12px;cursor:pointer}
+    .inv-tab.active{background:var(--accent);color:#000;border-color:var(--accent);font-weight:800}
+
+    /* Inventario listas */
+    .inv-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:10px}
+    .inv-card{background:#1b1b1b;border:1px solid #2e2e2e;border-radius:14px;padding:12px;display:flex;flex-direction:column;gap:8px;box-shadow:0 2px 6px rgba(0,0,0,.35);transition:transform .15s ease, box-shadow .2s ease}
+    .inv-card:hover{transform:translateY(-2px);box-shadow:0 4px 10px rgba(0,0,0,.5)}
+    .inv-head{display:flex;justify-content:space-between;gap:8px;align-items:center}
+    .inv-head .m{font-weight:800;color:#00e5ff}
+    .inv-meta{display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:12.5px;color:#e1e1e1}
+    .inv-meta b{color:#bfefff}
+    .badge{display:inline-block;padding:2px 6px;border-radius:999px;font-size:11px;border:1px solid var(--soft);background:#0f0f0f;color:#cfeaf0}
+    .inv-actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:2px}
+    .btn-mini{border:1px solid var(--soft);background:#0f0f0f;border-radius:10px;padding:7px 10px;cursor:pointer;font-size:13px;color:#fff}
+    .btn-mini.ok{background:var(--ok);color:#000;border-color:var(--ok);font-weight:800}
+    .btn-mini.rev{background:#0b2a30;border-color:#0d3f47}
+    .btn-mini.warn{background:#222}
+
+    .totales-bar{display:flex;flex-wrap:wrap;gap:10px;margin:8px 0}
+    .t-chip{background:#171717;border:1px solid #2b2b2b;border-radius:10px;padding:8px 10px;color:#e1e1e1;box-shadow:0 1px 4px rgba(0,0,0,.4)}
+    .t-chip b{color:#bfefff}
+    .t-chip .pct{font-weight:800;color:#00e676}
+
+    .kpi-por-mac{margin:8px 0 2px;color:#9aa9b1;font-size:12px}
+    .kpi-por-mac b{color:#cfeaf0}
+
+    /* Modal Inventario */
+    .modal{position:fixed;inset:0;background:rgba(0,0,0,.55);display:none;align-items:center;justify-content:center;padding:14px;z-index:1200}
+    .win{background:#1a1a1a;border:1px solid #333;border-radius:14px;max-width:920px;width:98vw;max-height:90vh;display:flex;flex-direction:column;overflow:hidden;color:#fff;box-shadow:0 4px 14px rgba(0,0,0,.7)}
+    .win .head{padding:10px;border-bottom:1px solid var(--soft);display:flex;justify-content:space-between;align-items:center}
+    .win .body{padding:10px;overflow:auto}
+    .close{border:1px solid var(--soft);background:#151515;border-radius:8px;padding:6px 10px;cursor:pointer;color:#fff}
+    .kv{display:grid;grid-template-columns:160px 1fr;gap:6px;font-size:13px}
+    .kv b{color:#bfefff}
+    .modal .actions{padding:10px;border-top:1px solid var(--soft);display:flex;gap:8px}
+    .modal input, .modal textarea, .modal select{background:#fff;color:#000;border:1px solid #ccc}
+
+    /* Responsive */
+    @media (max-width:900px){
+      .grid4{grid-template-columns:repeat(2,1fr)}
+      canvas{height:320px !important}
+    }
+    @media (max-width:520px){
+      .grid4{grid-template-columns:1fr}
+      .actions{flex-direction:column;align-items:stretch}
+    }
+    @media (max-width:768px){
+      .inv-grid{grid-template-columns:1fr !important}
+      .inv-card{padding:10px;border-radius:12px}
+      .inv-meta{grid-template-columns:1fr !important;font-size:12px}
+      .inv-head .m{font-size:14px}
+      .inv-actions{flex-direction:column;align-items:stretch}
+      .btn-mini{width:100%;font-size:13px;padding:8px}
+      .inv-pill{flex-direction:column;align-items:flex-start}
+      .inv-toolbar{flex-direction:column;align-items:stretch}
+      .inv-toolbar select,.inv-toolbar input[type="text"]{width:100%}
+    }
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>ERP Producción</title>
+
+<!-- Chart.js para Dashboard -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<!-- XLSX para exportar -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<!-- Firebase compat (igual que en tu app) -->
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+	
+<style>
+  :root{
+    --sidebar:#000; --sidebar-hover:#222; --content-bg:#ecf0f1; --btn:#bdc3c7; --btn-hover:#95a5a6;
+    --header-bg:#f5f5f5; --border:#ddd; --accent:#0ea5e9; --danger:#ef4444; --ok:#10b981;
+  }
+  *{box-sizing:border-box}
+  body{ margin:0; font-family:Arial, sans-serif; display:flex; background:var(--content-bg); min-height:100vh; }
+
+  /* Sidebar */
+  .sidebar{ width:240px; background:var(--sidebar); color:#fff; min-height:100vh; transition:width .25s; overflow:auto; }
+  .sidebar.collapsed{ width:72px; }
+  .sidebar h2{ text-align:center; margin:0; padding:15px 0; background:#111; font-size:18px;}
+  .sidebar ul{ list-style:none; padding:0; margin:0; }
+  .sidebar ul li{ padding:12px 18px; display:flex; align-items:center; cursor:pointer; border-bottom:1px solid rgba(255,255,255,.06); user-select:none; }
+  .sidebar ul li:hover, .sidebar ul li.active{ background:var(--sidebar-hover); }
+  .sidebar ul li i{ margin-right:10px; min-width:20px; text-align:center; }
+  .sidebar .submenu{ display:none; background:#0b0b0b; }
+  .sidebar .submenu li{ padding-left:36px; font-size:14px; }
+  .sidebar.collapsed .submenu li{ padding-left:18px; }
+  .sidebar.collapsed ul li span{ display:none; }
+
+  /* Content */
+  .content{ flex:1; padding:20px; }
+  .top-bar{ display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; gap:10px; flex-wrap:wrap; }
+  .btn{ background:var(--btn); color:#2c3e50; border:none; padding:8px 12px; border-radius:6px; cursor:pointer; font-size:14px;}
+  .btn:hover{ background:var(--btn-hover); }
+  .btn-accent{ background:var(--accent); color:#fff; }
+  .btn-accent:hover{ filter:brightness(.95); }
+  .btn-badge{ position:relative; }
+  .badge{ position:absolute; top:-6px; right:-6px; background:var(--danger); color:#fff; font-size:11px; padding:2px 6px; border-radius:999px; }
+  .search-box input{ width:280px; padding:6px; border-radius:6px; border:1px solid #cfcfcf; }
+
+  h1{ margin:4px 0 14px 0; }
+  .hidden{ display:none !important; }
+  .section-note{ color:#555; font-size:13px; margin-bottom:8px; }
+
+  /* Tables */
+  table{ width:100%; border-collapse:collapse; background:#fff; font-size:12.5px; }
+  th, td{ border:1px solid var(--border); padding:6px; text-align:center; }
+  th{ background:var(--header-bg); font-weight:bold; position:relative; user-select:none; }
+  th.sortable{ cursor:pointer; }
+  th.sortable:after{ content:"↕"; font-size:11px; color:#666; margin-left:6px; }
+  th.sortable.asc:after{ content:"↑"; }
+  th.sortable.desc:after{ content:"↓"; }
+
+  /* Filtros ERP */
+  th .filter-box{ display:inline-block; position:relative; margin-left:6px; }
+  th .filter-trigger{ visibility:hidden; cursor:pointer; font-size:12px; padding:2px 4px; border-radius:4px; }
+  th:hover .filter-trigger{ visibility:visible; }
+  .filter-box.active .filter-trigger{ background:#e5e7eb; }
+  .filter-content{ display:none; position:absolute; top:22px; left:0; background:#fff; border:1px solid #ccc; z-index:3000;
+                   box-shadow:0 6px 14px rgba(0,0,0,.15); min-width:240px; max-height:320px; overflow:auto; padding:8px; text-align:left; }
+  .filter-box.active .filter-content{ display:block; }
+  .filter-head{ display:flex; gap:6px; align-items:center;}
+  .filter-head input{ flex:1; padding:4px 6px; border:1px solid #ddd; border-radius:4px; font-size:12px; }
+  .filter-actions{ display:flex; justify-content:space-between; margin-top:6px; }
+  .filter-actions .mini{ font-size:12px; padding:4px 8px; border:1px solid #ddd; background:#f8fafc; border-radius:4px; cursor:pointer;}
+  .filter-actions .mini:hover{ background:#eef2f7; }
+  .filter-options{ margin-top:6px; max-height:200px; overflow:auto; }
+  .filter-item{ font-size:13px; padding:2px 0; white-space:nowrap; display:flex; gap:6px; align-items:center;}
+  .filter-item small{ color:#888; }
+
+  /* Paginación */
+  .pager{ display:flex; align-items:center; gap:8px; margin:6px 0 10px; flex-wrap:wrap;}
+  .pager select{ padding:4px; }
+  .pager .info{ color:#555; font-size:12px; }
+
+  /* Cards & dashboard grid */
+  .card{ background:#fff; border:1px solid #e5e7eb; border-radius:10px; padding:12px; margin-bottom:14px; }
+  .dashboard-grid{ display:grid; grid-template-columns:repeat(auto-fit,minmax(280px,1fr)); gap:14px; }
+
+  /* Overlay Loading */
+  .overlay{ position:fixed; inset:0; background:rgba(0,0,0,.45); display:none; align-items:center; justify-content:center; z-index:5000; }
+  .overlay .panel{ background:#111; color:#fff; padding:20px 26px; border-radius:10px; min-width:260px; text-align:center; }
+  .overlay .spinner{ margin:0 auto 10px auto; border:4px solid rgba(255,255,255,.15); border-top:4px solid #fff; border-radius:50%; width:36px; height:36px; animation:spin 1s linear infinite;}
+  @keyframes spin{ 100%{ transform:rotate(360deg);} }
+
+  /* Modal */
+  .modal{ position:fixed; inset:0; background:rgba(0,0,0,.5); display:none; align-items:center; justify-content:center; z-index:4000; padding:14px; }
+  .modal .window{ background:#fff; border-radius:10px; width:min(1250px, 98vw); max-height:92vh; display:flex; flex-direction:column; overflow:hidden; }
+  .modal .head{ padding:10px 12px; border-bottom:1px solid #eee; display:flex; justify-content:space-between; align-items:center; gap:8px;}
+  .modal .head .tools{ display:flex; gap:6px; }
+  .modal .head .tools .btn{ padding:6px 10px; font-size:12px; }
+  .modal .body{ padding:10px; overflow:auto; }
+  .close{ background:#eee; border:none; border-radius:6px; padding:6px 10px; cursor:pointer; }
+
+  /* Print */
+  @media print{
+    body *{ visibility:hidden !important; }
+    .printable, .printable *{ visibility:visible !important; }
+    .printable{ position:absolute; left:0; top:0; width:100%; }
+    .filter-content{ display:none !important; }
+  }
+
+    /* ===== Tabla (vista tabla) ===== */
+    #viewTabla table th, #viewTabla table td {
+      border-bottom: 1px solid var(--border);
+      text-align: center;
+      padding: 8px;
+      color: #eee;
+      font-size: 14px;
+    }
+    #viewTabla table th { background: #171717; color: var(--accent); font-weight: 700; }
+    #viewTabla .btn-mini { padding: 4px 8px; font-size: 13px; }
+    #viewTabla select { background: #fff; color: #000; border-radius: 6px; padding: 6px; }
+    #viewTabla { padding-bottom: 20px; }
+
+    .grupoTabla { margin-bottom: 22px; background: var(--panel); border-radius: 12px; padding: 10px; box-shadow: 0 0 6px rgba(0,0,0,0.3); }
+    .titulo-grupo { margin: 0 0 8px 4px; font-size: 15px; color: var(--accent); text-transform: uppercase; font-weight: bold; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .tabla-grupo { width: 100%; border-collapse: collapse; border-radius: 10px; overflow: hidden; display: block; }
+    .tabla-grupo thead { background: #171717; display: block; border-bottom: 2px solid var(--accent); }
+    .tabla-grupo tbody { display: block; }
+    .tabla-grupo tr { display: grid; grid-template-columns: repeat(auto-fit, minmax(80px, 1fr)); border-bottom: 1px solid var(--border); padding: 4px 0; }
+    .tabla-grupo th, .tabla-grupo td { text-align: center; font-size: 14px; padding: 6px; color: #e0e0e0; word-break: break-word; white-space: normal; }
+    .tabla-grupo th { color: var(--accent); font-weight: 600; padding: 8px 6px; text-transform: uppercase; font-size: 13px; }
+    .tabla-grupo tr:nth-child(even) { background: rgba(255,255,255,0.03); }
+    .acciones-cell { display: flex; justify-content: center; align-items: center; gap: 8px; }
+    .btn-mini { padding: 10px 16px; border-radius: 10px; font-size: 15px; border: none; cursor: pointer; transition: all 0.2s ease; box-shadow: 0 2px 6px rgba(0,0,0,0.3); }
+    .btn-mini.ok { background: #00c853; color: #fff; }
+    .btn-mini.warn { background: #ffab00; color: #000; }
+    .btn-mini:active { transform: scale(0.95); }
+    .btn-mini.confirmed { animation: confirmPulse 0.4s ease; background: #1de9b6 !important; }
+    @keyframes confirmPulse { 0%{transform:scale(1); box-shadow:0 0 0 rgba(0,255,0,.6);} 50%{transform:scale(1.1); box-shadow:0 0 12px rgba(0,255,0,.8);} 100%{transform:scale(1); box-shadow:0 0 0 rgba(0,255,0,0);} }
+
+    /* ===== Visor de Planos (modal PDF.js) ===== */
+    #visorPlanosModal{position:fixed;inset:0;background:rgba(0,0,0,.75);display:none;align-items:center;justify-content:center;z-index:1600}
+    #visorCont{background:#0f0f0f;border:1px solid #333;border-radius:12px;width:96vw;height:92vh;position:relative;overflow:hidden}
+    #visorHeader{display:flex;justify-content:space-between;align-items:center;padding:8px 10px;border-bottom:1px solid #222}
+    #visorHeader b{color:#00e5ff}
+    #btnCerrarVisor{border:1px solid var(--soft);background:#151515;border-radius:8px;padding:6px 10px;cursor:pointer;color:#fff}
+    #visorIframe{width:100%;height:calc(100% - 44px);border:0}
+    /* Bloqueos básicos de UI para evitar copiar/descargar */
+    #visorCont, #visorCont *{user-select:none;-webkit-user-select:none}
+  </style>
+  /* Responsive */
+  @media(max-width:900px){
+    .dashboard-grid{ grid-template-columns:1fr; }
+    .sidebar{ position:fixed; z-index:3500; }
+    .content{ margin-left:0; }
+    /* Botón menú siempre visible en móvil: lo dejamos fuera del flujo de tabla */
+  }
+
+  /* Compactación extra para tablas anchas (evitar scroll) */
+  #porTemplarSection table, #porEntregarSection table, .modal table{
+    font-size:12px;
+  }
+/* Celdas del modal en una sola línea */
+.modal table th,
+.modal table td {
+  white-space: nowrap;     
+  overflow: visible;       
+  text-overflow: unset;    
+}
+
+/* Ajustar automáticamente el ancho del modal según su contenido */
+.modal .window {
+  display: inline-block;      /* se ajusta al contenido */
+  max-width: 98vw;            /* no más que la pantalla */
+  width: auto;                /* ancho según contenido */
+}
+.modal .body {
+  overflow-x: auto;           /* por si acaso en pantallas pequeñas */
+}
+
+/* ===========================
+   Ajustes para impresión
+   =========================== */
+@media print {
+  /* Asegurar que las celdas no hagan salto de línea */
+  table th, 
+  table td {
+    white-space: nowrap !important;
+    overflow: visible !important;
+    text-overflow: unset !important;
+  }
+
+  /* Hacer que las tablas ocupen todo el ancho disponible */
+  table {
+    width: auto !important;
+  }
+
+  /* Quitar límites de modal en impresión */
+  .modal .window {
+    width: auto !important;
+    max-width: none !important;
+  }
+}
+
+/* ===== Pie de página con fecha de última actualización en impresión ===== */
+@media print {
+  @page {
+    size: landscape;
+    margin: 15mm;
+  }
+
+  body::after {
+    content: "Última actualización: " attr(data-ultima) " | Vista: " attr(data-vista);
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    font-size: 11px;
+    color: #444;
+  }
+}
+
+.ultimaInfo {
+  font-size: 12px;
+  color: #555;
+  margin: 4px 0 10px 0;
+  font-style: italic;
+}
+
+@media print {
+  @page {
+    size: legal landscape; /* oficio horizontal */
+    margin: 10mm;
+  }
+  body * { visibility:hidden; }
+  .printable, .printable * { visibility:visible; }
+  .printable { position:absolute; left:0; top:0; width:100%; }
+  table { page-break-inside: auto; }
+  tr { page-break-inside: avoid; page-break-after: auto; }
+  thead { display: table-header-group; }
+  tfoot { display: table-footer-group; }
+}
+
+/* Planilla */
+#planillaLogo {
+  max-height: 60px;
+}
+
+.planillaTabla {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  text-align: center;
+}
+
+.planillaTabla th, .planillaTabla td {
+  border: 1px solid #000;
+  padding: 2px 4px;
+}
+
+.planillaTabla th {
+  background: #f4f4f4;
+  font-size: 11px;
+}
+
+
+  /* SOLO afecta a la planilla */
+  #planillaContainer .planilla{width:100%;border-collapse:collapse;font-size:11px;}
+  #planillaContainer .planilla th,
+  #planillaContainer .planilla td{border:1px solid #000;padding:4px 5px;text-align:center;}
+  #planillaContainer .no-b{border:none!important}
+  #planillaContainer .left{text-align:left} .right{text-align:right} .center{text-align:center}
+  #planillaContainer .title{font-weight:700;font-size:14px;text-align:center}
+  #planillaContainer .mini{border:none;border-bottom:1px solid #000;width:120px}
+  /* cuadricula 3x3 del extremo derecho */
+  #planillaContainer .mini-grid{width:78px;height:60px;border-collapse:collapse;float:right}
+  #planillaContainer .mini-grid td{border:1px solid #000}
+  /* anchos de las 16 columnas para alineación estable (aprox. Excel) */
+  #planillaContainer .planilla col.c1{width:3%}   /* ITEM */
+  #planillaContainer .planilla col.c2{width:6.5%} /* CANASTA */
+  #planillaContainer .planilla col.c3{width:7%}   /* SO NUM */
+  #planillaContainer .planilla col.c4{width:10%}  /* REFERENCIA */
+  #planillaContainer .planilla col.c5{width:6%}   /* CANTIDAD */
+  #planillaContainer .planilla col.c6{width:6%}   /* LONGITUD */
+  #planillaContainer .planilla col.c7{width:7%}   /* PRODUCCIÓN */
+  #planillaContainer .planilla col.c8{width:13%}  /* CLIENTE */
+  #planillaContainer .planilla col.c9{width:11%}  /* ACABADO */
+  #planillaContainer .planilla col.c10{width:7.5%}/* PRENSA */
+  #planillaContainer .planilla col.c11{width:3.5%}/* WT */
+  #planillaContainer .planilla col.c12{width:5%}  /* TEMPLE */
+  #planillaContainer .planilla col.c13{width:13%} /* RESISTENCIA */
+  #planillaContainer .planilla col.c14{width:4.5%}/* ALEACIÓN */
+  #planillaContainer .planilla col.c15{width:5.5%}/* REPROCESO */
+  #planillaContainer .planilla col.c16{width:7%}  /* FIRMA */
+
+.card-horno {
+  background: #fff;
+  border: 6px solid #ddd;   /* Borde gris claro */
+  border-radius: 10px;      /* Bordes redondeados */
+  padding: 15px;
+  width: 280px;             /* Ajusta el ancho si quieres más compacto */
+  box-shadow: 0 2px 4px rgba(0,0,0,0.08); /* Sombra suave */
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.card-horno:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 4px 10px rgba(0,0,0,0.15);
+}
+.card-horno h3 {
+  margin: 0;
+  font-size: 16px;
+  color: #2563eb;
+}
+.linea-gris {
+  background: #f5f7fa;
+  padding: 4px 6px;
+  border-radius: 6px;
+  font-size: 13px;
+}
+.total {
+  margin-top: 5px;
+  font-weight: bold;
+}
+.barra-total {
+  height: 6px;
+  background: #e5e7eb;
+  border-radius: 6px;
+  overflow: hidden;
+}
+.barra-total span {
+  display: block;
+  height: 100%;
+  background: #3b82f6;
+}
+.dashboard-grid {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 20px;
+  padding: 20px;
+}
+
+.dashboard-main-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 14px;
+}
+
+
+.titulo-en-temple {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 14px 24px;
+  font-weight: bold;
+  font-size: 18px;
+  color: #0f172a;
+  background: #e0e7ff; /* opcional, azul suave */
+  border-radius: 8px;
+}
+
+
+.hora-ampm-input {
+  border: none;
+  background: transparent;
+  font-weight: bold;
+  color: #000;
+  width: 70px;
+}
+.hora-ampm-input:focus {
+  outline: none;
+  border-bottom: 1px solid #003366;
+}
+
+tr.destacado {
+  background-color: #ffeeba !important;
+  font-weight: bold;
+  color: #000;
+}
+
+/* ==== Corrección de posición para los filtros del borde derecho ==== */
+th:last-child .filter-content,
+th:nth-last-child(2) .filter-content {
+  left: auto !important;
+  right: 0 !important;
+  transform: translateX(-100%) !important;
+}
+
+.filter-content {
+  background: #fff;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  min-width: 160px;
+  box-shadow: 0 4px 8px rgba(0,0,0,0.25);
+  z-index: 9999;
+}
+
+.obs-cell {
+  width: 100%;
+  min-height: 20px;
+  padding: 3px 4px;
+  outline: none;
+  border: none;
+  background: transparent;
+  white-space: normal !important; /* Permite varias líneas */
+  overflow-wrap: break-word;
+}
+
+.obs-cell.long-text {
+  font-size: 12px;
+  line-height: 1.1;
+}
+
+
+.hora-ampm-input {
+  line-height: 1.2em !important;
+  padding-top: 2px !important;
+  padding-bottom: 0 !important;
+  height: 22px !important;
+}
+
+.titulo-en-temple {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 15px;
+  font-size: 17px;
+  font-weight: 600;
+}
+
+.titulo-izq {
+  display: flex;
+  gap: 8px;
+}
+
+.titulo-der {
+  margin-left: 15px;
+}
+
+
+.titulo-en-temple {
+  background: #e7edff;
+  padding: 10px 15px;
+  border-radius: 8px;
+  font-weight: 600;
+  font-size: 17px;
+}
+
+.titulo-texto {
+  display: inline-block;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+.titulo-texto b {
+  font-weight: 700;
+}
+
+.separador {
+  display: inline-block;
+  width: 25px; /* separa visualmente */
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+
+	
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <!-- Header -->
+    <div class="header-bar">
+      <button class="hamb" id="btnMenu">☰</button>
+      <div class="header-title" id="topTitle">Registro de Temperaturas</div>
+
+<!-- Sidebar -->
+<div class="sidebar" id="sidebar">
+  <h2>TEMPLE</h2>
+  <ul>
+    <li class="active" data-menu="dashboard" onclick="showMenu('dashboard')"><i>📊</i><span>Dashboard</span></li>
+
+    <li id="extrusionMenu" onclick="toggleSubmenu('extrusion')"><i>🏭</i><span>Extrusión</span></li>
+    <ul class="submenu" id="extrusionSubmenu">
+      <li data-menu="por-templar" onclick="showMenu('por-templar')">Por Templar</li>
+    </ul>
+
+    <li id="sortingMenu" onclick="toggleSubmenu('sorting')"><i>🗂</i><span>Sorting</span></li>
+    <ul class="submenu" id="sortingSubmenu">
+      <li data-menu="por-entregar" onclick="showMenu('por-entregar')">Por Entregar</li>
+    </ul>
+     
+    <li id="reportesMenu" onclick="toggleSubmenu('reportes')"><i>📄</i><span>Reportes</span></li>
+    <ul class="submenu" id="reportesSubmenu">
+      <li data-menu="planilla-envejecimiento" onclick="showMenu('planilla-envejecimiento')">Envejecimiento</li>
+      <li data-menu="en-temple" onclick="showMenu('en-temple')">En Temple</li>
+    </ul>
+	
+  </ul>
+</div>
+
+<!-- Main content -->
+<div class="content">
+  <div class="top-bar">
+    <div style="display:flex; gap:8px; align-items:center;">
+      <button class="btn" onclick="toggleSidebar()">☰</button>
+      <button class="btn btn-accent" id="btnActualizar" onclick="handleActualizar()">Actualizar</button>
+      <button id="btnQuitarFiltros" style="display: none;">Eliminar filtros</button>
+      <button id="btnQuitarResaltado" style="display: none;">Eliminar resaltado</button>
+		
+      <!-- Botones de novedades (badges) -->
+      <button id="btnNovedadesExtrusion" class="btn btn-badge hidden" onclick="openModal('modalExtrusion')">Novedades Extrusión</button>
+      <button id="btnNovedadesSorting" class="btn btn-badge hidden" onclick="openModal('modalSorting')">Novedades Sorting</button>
+    </div>
+    <div class="search-box">
+      <input id="globalSearch" placeholder="Buscar en la tabla visible..." oninput="applyGlobalSearch(this.value)">
+      <button class="btn" onclick="exportVisibleTable()">Exportar Excel</button>
+      <button class="btn" onclick="printVisible()">Imprimir</button>
+    </div>
+  </div>
+
+    <!-- ======== Vista: Registro de Temperaturas ======== -->
+    <div id="view-temperaturas">
+      <div class="card">
+        <div class="grid4">
+          <div>
+            <label for="horno">Horno</label>
+            <select id="horno">
+              <option value="">-- Selecciona --</option>
+              <option>Horno 5</option><option>Horno 7-3</option><option>Horno 9-1</option>
+              <option>Horno 9-2</option><option>Horno Italiano</option><option>Horno 7-4</option>
+              <option>Horno 7-5</option><option>Horno 9-3</option><option>Horno 10</option>
+            </select>
+          </div>
+          <div>
+            <label for="fecha">Fecha</label>
+            <input type="date" id="fecha">
+          </div>
+          <div>
+            <label for="turno">Turno</label>
+            <select id="turno">
+              <option value="">-- Selecciona --</option>
+              <option value="T1">T1</option><option value="T2">T2</option>
+            </select>
+          </div>
+          <div>
+            <label for="selActivos">Ciclos activos</label>
+            <select id="selActivos"><option value="">-- Ninguno --</option></select>
+          </div>
+        </div>
+
+        <div class="grid4" style="margin-top:12px">
+          <div>
+            <label for="horaInicio">Hora inicio</label>
+            <input type="time" id="horaInicio">
+          </div>
+          <div>
+            <label for="horaFin">Hora fin (auto +10h)</label>
+            <input type="time" id="horaFin">
+          </div>
+          <div>
+            <label for="operarioInicio">Operario (inicia)</label>
+            <input type="text" id="operarioInicio" placeholder="nombre">
+          </div>
+          <div class="actions">
+            <div style="width:100%">
+              <label style="visibility:hidden">actions</label>
+              <div style="display:flex;gap:8px">
+                <button id="btnNuevo" class="btn-primary">Iniciar ciclo</button>
+                <button id="btnRecargar" class="btn-outline">Recargar ciclos</button>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="hint">Si existe un ciclo activo (mismo Horno/Fecha/Turno) aparecerá en "Ciclos activos".</div>
+      </div>
+  <h1 id="pageTitle">Dashboard</h1>	
+
+      <div class="card">
+        <h3 style="color:var(--accent);margin:0 0 12px">Agregar lecturas por hora</h3>
+        <div class="table-wrap">
+          <table id="tabla">
+            <thead>
+              <tr><th>Hora</th><th>Zona 1</th><th>Zona 2</th><th>Zona 3</th><th>Zona 4</th><th>SetPoint</th><th>Quitar</th></tr>
+            </thead>
+            <tbody id="tbody">
+              <tr>
+                <td><input type="time" class="hora"></td>
+                <td><input type="number" class="zona1" step="0.1"></td>
+                <td><input type="number" class="zona2" step="0.1"></td>
+                <td><input type="number" class="zona3" step="0.1"></td>
+                <td><input type="number" class="zona4" step="0.1"></td>
+                <td><input type="number" class="setPoint" step="0.1"></td>
+                <td><button class="del" type="button" style="background:var(--accent);color:#000">✕</button></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="btn-row">
+          <button id="btnAgregarFila" class="btn-primary" type="button">Agregar lectura</button>
+          <button id="btnGuardar" class="btn-primary" type="button">Guardar lecturas</button>
+          <button id="btnFinalizar" class="btn-danger" type="button">Finalizar ciclo</button>
+        </div>
+      </div>
+  <!-- Dashboard -->
+  <div id="dashboardSection">
+  <div id="ultimaInfoDashboard" class="ultimaInfo">Última actualización: -</div>
+    <div class="card" style="max-width:520px; margin:auto;">
+      <div id="tablaResumenPendientes"></div>
+    </div>
+    <div class="dashboard-main-grid">
+      <div class="card"><canvas id="chartKgDescripcion"></canvas></div>
+      <div class="card"><canvas id="chartKgPrio"></canvas></div>
+      <div class="card"><canvas id="chartDiferenciasHorno"></canvas></div>
+    </div>
+  </div>
+
+      <div class="card">
+        <h3 style="color:var(--accent);margin:0 0 12px">Gráfica del ciclo seleccionado (en tiempo real)</h3>
+        <canvas id="chart"></canvas>
+        <div class="cabecera" id="cabecera"></div>
+      </div>
+  <!-- Extrusión / Por Templar -->
+  <div id="porTemplarSection" class="hidden">
+  <div id="ultimaInfoTemplar" class="ultimaInfo">Última actualización: -</div>
+    <div class="section-note">Pendientes (EXTRUDE vs TMP-IN). Usa los filtros ⏷, el total se actualiza con lo filtrado.</div>
+    <div class="pager">
+      <label>Mostrar
+        <select id="pgSizeA" onchange="renderPaged('tablaPendientes')">
+         <option>10</option><option>25</option><option>50</option><option>100</option>
+         <option>250</option><option>500</option>
+         <option value="999999">Todos</option>
+        </select> registros
+      </label>
+      <div class="info" id="infoA"></div>
+    </div>
+    <div class="card printable">
+      <table id="tablaPendientes"><thead><tr>
+        <th class="sortable" data-col="0">Soitem <span class="filter-box"><span class="filter-trigger" onclick="toggleFilter(this,event)">⏷</span><div class="filter-content" data-table="tablaPendientes" data-col="0"></div></span></th>
+        <th class="sortable" data-col="1">Part <span class="filter-box"><span class="filter-trigger" onclick="toggleFilter(this,event)">⏷</span><div class="filter-content" data-table="tablaPendientes" data-col="1"></div></span></th>
+        <th class="sortable" data-col="2">Descripción <span class="filter-box"><span class="filter-trigger" onclick="toggleFilter(this,event)">⏷</span><div class="filter-content" data-table="tablaPendientes" data-col="2"></div></span></th>
+        <th class="sortable" data-col="3">Prio <span class="filter-box"><span class="filter-trigger" onclick="toggleFilter(this,event)">⏷</span><div class="filter-content" data-table="tablaPendientes" data-col="3"></div></span></th>
+        <th class="sortable" data-col="4">Pzs Pend <span class="filter-box"><span class="filter-trigger" onclick="toggleFilter(this,event)">⏷</span><div class="filter-content" data-table="tablaPendientes" data-col="4"></div></span></th>
+        <th class="sortable" data-col="5">Kg Pend <span class="filter-box"><span class="filter-trigger" onclick="toggleFilter(this,event)">⏷</span><div class="filter-content" data-table="tablaPendientes" data-col="5"></div></span></th>
+        <th class="sortable" data-col="6">Long <span class="filter-box"><span class="filter-trigger" onclick="toggleFilter(this,event)">⏷</span><div class="filter-content" data-table="tablaPendientes" data-col="6"></div></span></th>
+        <th class="sortable" data-col="7">Máquina <span class="filter-box"><span class="filter-trigger" onclick="toggleFilter(this,event)">⏷</span><div class="filter-content" data-table="tablaPendientes" data-col="7"></div></span></th>
+        <th class="sortable" data-col="8">Línea <span class="filter-box"><span class="filter-trigger" onclick="toggleFilter(this,event)">⏷</span><div class="filter-content" data-table="tablaPendientes" data-col="8"></div></span></th>
+        <th class="sortable" data-col="9">Temper <span class="filter-box"><span class="filter-trigger" onclick="toggleFilter(this,event)">⏷</span><div class="filter-content" data-table="tablaPendientes" data-col="9"></div></span></th>
+        <th class="sortable" data-col="10">Fecha <span class="filter-box"><span class="filter-trigger" onclick="toggleFilter(this,event)">⏷</span><div class="filter-content" data-table="tablaPendientes" data-col="10"></div></span></th>
+        <th class="sortable" data-col="11">Aleación <span class="filter-box"><span class="filter-trigger" onclick="toggleFilter(this,event)">⏷</span><div class="filter-content" data-table="tablaPendientes" data-col="11"></div></span></th>
+        <th class="sortable" data-col="12">Planta <span class="filter-box"><span class="filter-trigger" onclick="toggleFilter(this,event)">⏷</span><div class="filter-content" data-table="tablaPendientes" data-col="12"></div></span></th>
+        <th class="sortable" data-col="13">Cliente <span class="filter-box"><span class="filter-trigger" onclick="toggleFilter(this,event)">⏷</span><div class="filter-content" data-table="tablaPendientes" data-col="13"></div></span></th>
+        <th class="sortable" data-col="14">Estado Inv<span class="filter-box"><span class="filter-trigger" onclick="toggleFilter(this,event)">⏷</span><div class="filter-content" data-table="tablaPendientes" data-col="14"></div></span></th>
+
+      </tr></thead><tbody></tbody>
+      <tfoot><tr><td colspan="5" style="text-align:right"><b>TOTAL Kg Pend:</b></td><td id="totalKgPend">0</td><td colspan="8"></td></tr></tfoot>
+      </table>
+    </div>
+  </div>
+
+
+    <!-- ======== Vista: Inventario ======== -->
+    <div id="view-inventario" class="hidden">
+      <div class="card" style="background:var(--panel-2)">
+        <div class="inv-toolbar">
+          <div class="inv-pill">
+            <label>Planta</label>
+            <select id="fPlanta">
+              <option value="">Todas</option>
+              <option>A1</option><option>A2</option><option>A3</option><option>OTRA</option>
+            </select>
+            <label>Máquina</label>
+            <select id="fMaquina"><option value="">Todas</option></select>
+          </div>
+          <div class="inv-pill">
+            <label>Buscar</label>
+            <input id="fBuscar" type="text" placeholder="soitem, part, desc...">
+          </div>
+          <div class="inv-pill">
+            <label>Ordenar</label>
+            <select id="fOrden">
+              <option value="fecha_desc">Fecha reciente</option>
+              <option value="fecha_asc">Fecha antigua</option>
+              <option value="machine">Máquina</option>
+              <option value="part">Part</option>
+              <option value="kg_desc">Kg ↓</option>
+              <option value="kg_asc">Kg ↑</option>
+              <option value="desc">Descripción (A-Z)</option>
+              <option value="desc_rev">Descripción (Z-A)</option>
+            </select>
+          </div>
+          <button class="inv-btn" id="btnActualizarInv">Actualizar</button>
+          <div class="inv-info" id="ultimaInfoInv">Última actualización: -</div>
+          <button class="inv-btn" id="btnVistaToggle">📋 Vista Tabla</button>
+          <div class="inv-info"><b>Turno actual:</b> <span id="lblTurno">-</span></div>
+        </div>
+
+        <div class="inv-tabs">
+          <div class="inv-tab active" id="tabPend">Pendientes</div>
+          <div class="inv-tab" id="tabRevis">Revisados</div>
+          <div class="inv-tab" id="tabHist">Historial</div>
+        </div>
+
+        <div class="totales-bar" id="totalesBar">
+          <div class="t-chip"><b>Total general:</b> <span id="tTotalGeneral">0</span> Kg</div>
+          <div class="t-chip"><b>Pendientes por revisar:</b> <span id="tPendientes">0</span> Kg</div>
+          <div class="t-chip"><b>Revisados:</b> <span id="tRevisados">0</span> Kg</div>
+          <div class="t-chip"><b>Avance:</b> <span class="pct" id="tAvance">0%</span></div>
+        </div>
+
+        <div class="kpi-por-mac" id="kpiPorMac"></div>
+      </div>
+
+      <div id="listPend" class="inv-grid"></div>
+      <div id="listRevis" class="inv-grid hidden"></div>
+      <div id="listHist" class="inv-grid hidden"></div>
+  <!-- Sorting / Por Entregar -->
+  <div id="porEntregarSection" class="hidden">
+  <div id="ultimaInfoEntregar" class="ultimaInfo">Última actualización: -</div>
+    <div class="section-note">Pendientes TMP-IN vs TEMPER. Usa Actualizar cuando entres a esta vista.</div>
+    <div class="card" style="margin-bottom:8px;">
+      <label style="display:none;">Fecha Inicial: <input type="date" id="fechaInicial" value="2025-01-01"></label>
+      <label>Fecha Final: <input type="date" id="fechaFinal"></label>
+    </div>
+  </div>
+
+  <!-- ===== Vista Tabla Pendientes ===== -->
+  <div id="viewTabla" class="hidden">
+    <div class="card" style="background:var(--panel-2)">
+      <div class="inv-toolbar" style="justify-content:space-between;align-items:center">
+        <div class="inv-pill">
+          <label>Agrupar por</label>
+          <select id="agrupacionTabla">
+            <option value="part">Part</option>
+            <option value="desc">Descripción</option>
+    <div class="pager">
+      <label>Mostrar
+        <select id="pgSizeB" onchange="renderPaged('tablaPendientesTemper')">
+          <option>10</option><option>25</option><option>50</option><option>100</option>
+          <option>250</option><option>500</option>
+          <option value="999999">Todos</option>
+        </select> registros
+      </label>
+      <div class="info" id="infoB"></div>
+    </div>
+
+    <div class="card printable">
+      <table id="tablaPendientesTemper"><thead><tr>
+        <th class="sortable" data-col="0">Soitem <span class="filter-box"><span class="filter-trigger" onclick="toggleFilter(this,event)">⏷</span><div class="filter-content" data-table="tablaPendientesTemper" data-col="0"></div></span></th>
+        <th class="sortable" data-col="1">Pzs TMP-IN <span class="filter-box"><span class="filter-trigger" onclick="toggleFilter(this,event)">⏷</span><div class="filter-content" data-table="tablaPendientesTemper" data-col="1"></div></span></th>
+        <th class="sortable" data-col="2">Pzs TEMPER <span class="filter-box"><span class="filter-trigger" onclick="toggleFilter(this,event)">⏷</span><div class="filter-content" data-table="tablaPendientesTemper" data-col="2"></div></span></th>
+        <th class="sortable" data-col="3">Diferencia <span class="filter-box"><span class="filter-trigger" onclick="toggleFilter(this,event)">⏷</span><div class="filter-content" data-table="tablaPendientesTemper" data-col="3"></div></span></th>
+        <th class="sortable" data-col="4">Máquina <span class="filter-box"><span class="filter-trigger" onclick="toggleFilter(this,event)">⏷</span><div class="filter-content" data-table="tablaPendientesTemper" data-col="4"></div></span></th>
+        <th class="sortable" data-col="5">Part <span class="filter-box"><span class="filter-trigger" onclick="toggleFilter(this,event)">⏷</span><div class="filter-content" data-table="tablaPendientesTemper" data-col="5"></div></span></th>
+        <th class="sortable" data-col="6">Acabado <span class="filter-box"><span class="filter-trigger" onclick="toggleFilter(this,event)">⏷</span><div class="filter-content" data-table="tablaPendientesTemper" data-col="6"></div></span></th>
+        <th class="sortable" data-col="7">Turno <span class="filter-box"><span class="filter-trigger" onclick="toggleFilter(this,event)">⏷</span><div class="filter-content" data-table="tablaPendientesTemper" data-col="7"></div></span></th>
+        <th class="sortable" data-col="8">Fecha <span class="filter-box"><span class="filter-trigger" onclick="toggleFilter(this,event)">⏷</span><div class="filter-content" data-table="tablaPendientesTemper" data-col="8"></div></span></th>
+        <th class="sortable" data-col="9">Horas <span class="filter-box"><span class="filter-trigger" onclick="toggleFilter(this,event)">⏷</span><div class="filter-content" data-table="tablaPendientesTemper" data-col="9"></div></span></th>
+
+<th class="sortable" data-col="10">
+  Observaciones
+  <span class="filter-box">
+    <span class="filter-trigger" onclick="toggleFilter(this,event)">⏷</span>
+    <div class="filter-content" data-table="tablaPendientesTemper" data-col="10"></div>
+  </span>
+</th>
+
+
+      </tr></thead><tbody></tbody></table>
+    </div>
+    </div>
+ 
+
+<!-- Reportes / Planilla Envejecimiento -->
+    <div id="planillaEnvejecimientoSection" class="hidden">
+      <!-- Encabezado de filtros -->
+      <div class="card" style="margin-bottom:12px;">
+        <label>Fecha: <input type="date" id="fechaPlanilla"></label>
+        <label>Turno:
+          <select id="turnoPlanilla">
+            <option value="1">Turno 1</option>
+            <option value="2">Turno 2</option>
+            <option value="3">Turno 3</option>
+          </select>
+        </label>
+        <label>Horno:
+          <select id="hornoPlanilla">
+            <option value="ITALIANO">ITALIANO</option>
+            <option value="HORNO 5">HORNO 5</option>
+            <option value="HORNO 7-3">HORNO 7-3</option>
+            <option value="HORNO 7-4">HORNO 7-4</option>
+            <option value="HORNO 7-5">HORNO 7-5</option>
+            <option value="HORNO 9-1">HORNO 9-1</option>
+            <option value="HORNO 9-2">HORNO 9-2</option>
+            <option value="HORNO 9-3">HORNO 9-3</option>
+            <option value="HORNO 10">HORNO 10</option>
+          </select>
+        </div>
+        <button class="inv-btn primary" id="btnRecargarTabla">🔄 Recargar</button>
+        </label>
+      </div>
+      <div class="table-wrap" id="tablaAgrupada"></div>
+    </div>
+<div id="loadingEnvejecimiento" style="display:none;text-align:center;padding:15px;">
+  <div class="spinner" style="
+    width:38px;height:38px;border:4px solid #d0d4ff;border-top-color:#3f51ff;
+    border-radius:50%;animation:spin 0.9s linear infinite;margin:auto;">
+  </div>
+  <span style="display:block;margin-top:6px;color:#333;font-size:15px;">Cargando…</span>
+</div>
+
+
+
+      <!-- Planilla -->
+      <div class="card printable" id="planillaContainer">
+        <table class="planilla" style="border-collapse:collapse; font-size:11px;" border="1">
+          <colgroup>
+            <col style="width:5%">
+            <col style="width:7%">
+            <col style="width:7%">
+            <col style="width:9%">
+            <col style="width:6%">
+            <col style="width:7%">
+            <col style="width:8%">
+            <col style="width:12%">
+            <col style="width:10%">
+            <col style="width:7%">
+            <col style="width:5%">
+            <col style="width:5%">
+            <col style="width:10%">
+            <col style="width:6%">
+            <col style="width:6%">
+            <col style="width:8%">
+          </colgroup>
+
+          <!-- Encabezado logo/código -->
+          <tr>
+            <td colspan="8" style="border:none; text-align:left;">
+              <img src="alutions-logo.png" style="max-height:46px">
+            </td>
+            <td colspan="8" style="border:none; text-align:right; font-size:11px;">
+              <b>FO-PR-E-02</b><br>
+              Versión: 02 &nbsp; Fecha: 23-05-2017
+            </td>
+          </tr>
+
+  <!-- ======== Vista: Planos ======== -->
+  <div id="view-planos" class="hidden">
+    <div class="card" style="background:var(--panel-2)">
+      <div class="inv-toolbar">
+        <div class="inv-pill">
+          <label>Buscar plano</label>
+          <input id="buscarPlano" type="text" placeholder="Nombre del plano...">
+        </div>
+        <div class="inv-pill" id="estadoLoginPlanos">
+          <span id="lblPlanosUsuario" style="color:#9aa9b1">No autenticado</span>
+          <button class="inv-btn primary" id="btnLoginGoogle">Iniciar con Google</button>
+          <button class="inv-btn" id="btnLogoutGoogle" style="display:none">Salir</button>
+        </div>
+        <button class="inv-btn primary" id="btnRecargarPlanos">🔄 Recargar</button>
+      </div>
+          <!-- Título -->
+          <tr>
+            <td colspan="16" style="text-align:center; font-weight:bold; font-size:14px;">
+              PROCESO DE ENVEJECIMIENTO
+            </td>
+          </tr>
+
+          <!-- Fecha/Turno/Horno -->
+          <tr>
+            <td colspan="6"><b>FECHA DE INGRESO DEL CICLO:</b> <span id="fechaIngreso" contenteditable="true"></span></td>
+            <td colspan="4" style="text-align:center"><b>TURNO:</b> <span id="turnoTexto" contenteditable="true"></span></td>
+            <td colspan="6">
+              <b>HORNO:</b> <span id="hornoTexto" contenteditable="true"></span><br>
+              <b>CARGA NO.:</b> <span contenteditable="true">HOJA A</span>
+            </td>
+          </tr>
+
+          <!-- Cabecera -->
+          <tr>
+            <th>ITEM</th><th>CANASTA</th><th>SO NUM</th><th>REFERENCIA</th>
+            <th>CANTIDAD</th><th>LONGITUD</th><th>PRODUCCIÓN (Kg)</th>
+            <th>CLIENTE</th><th>ACABADO</th><th>PRENSA</th>
+            <th>WT</th><th>TEMPLE</th><th>RESISTENCIA A LA TRACCIÓN (MPa)</th>
+            <th>ALEACIÓN</th><th>REPROCESO</th><th>FIRMA DE RECIBIDO</th>
+          </tr>
+
+          <!-- Cuerpo dinámico -->
+          <tbody id="tbodyPlanilla"></tbody>
+
+          <!-- Fila notas -->
+          <tr>
+            <td colspan="16" contenteditable="true" style="text-align:left"><b>NOTAS:</b></td>
+          </tr>
+
+          <!-- Horas + Ciclo -->
+          <tr>
+            <td colspan="6" contenteditable="true"><b>Hora inicio horno:</b> ______</td>
+            <td colspan="4" contenteditable="true" style="text-align:center"><b>TIPO DE CICLO DE ENVEJECIDO</b><br>1 [ ]  2 [ ]  3 [ ]</td>
+            <td colspan="6" contenteditable="true"><b>Hora final horno:</b> ______</td>
+          </tr>
+
+      <div class="tabla-container" style="max-height:70vh;overflow-y:auto;border-radius:10px;">
+        <table id="tablaPlanos" style="width:100%;border-collapse:collapse;">
+          <thead>
+            <tr style="background:#222;color:#00e5ff;">
+              <th style="padding:8px;border-bottom:1px solid #333;text-align:left;">Nombre</th>
+              <th style="padding:8px;border-bottom:1px solid #333;text-align:left;">Acción</th>
+            </tr>
+          </thead>
+          <tbody id="tbodyPlanos" style="color:#e0e0e0;"></tbody>
+          <!-- Responsables -->
+          <tr>
+            <td colspan="4" contenteditable="true"><b>Supervisor:</b> __________</td>
+            <td colspan="4" contenteditable="true"><b>Responsable de tomar temple:</b> __________</td>
+            <td colspan="4" contenteditable="true"><b>Responsable de realizar reporte:</b> __________</td>
+            <td colspan="4" contenteditable="true"><b>Responsable de meter la carga:</b> __________</td>
+          </tr>
+
+          <!-- Código equipo + cuadricula -->
+          <tr>
+            <td colspan="14" contenteditable="true"><b>Código equipo utilizado:</b> __________</td>
+            <td colspan="2">
+              <table style="width:100%; height:45px; border-collapse:collapse;" border="1">
+                <tr><td></td><td></td><td></td></tr>
+                <tr><td></td><td></td><td></td></tr>
+                <tr><td></td><td></td><td></td></tr>
+              </table>
+            </td>
+          </tr>
+        </table>
+      </div>
+      <div id="msgPlanos" class="inv-info" style="margin-top:8px;"></div>
+    </div> <!-- 🔹 fin de #planillaEnvejecimientoSection -->
+
+</div> <!-- 🔹 cierre de .content -->
+
+<!-- Reportes / En Temple -->
+<div id="enTempleSection" class="hidden">
+  <div class="card" style="margin-bottom:12px;">
+    <label>Fecha: <input type="date" id="fechaEnTemple"></label>
+    <label>Turno:
+      <select id="turnoEnTemple">
+        <option value="1">Turno 1</option>
+        <option value="2">Turno 2</option>
+        <option value="3">Turno 3</option>
+      </select>
+    </label>
+  </div>
+
+  <div class="card printable">
+<div id="tituloEnTemple" class="titulo-en-temple"></div>
+<div id="loadingEnTemple" style="display:none; text-align:center; padding:15px;">
+  <div class="spinner" style="
+    width:38px;height:38px;border:4px solid #d0d4ff;border-top-color:#3f51ff;
+    border-radius:50%;animation:spin 0.9s linear infinite;margin:auto;">
+  </div>
+  <span style="display:block;margin-top:6px;color:#333;font-size:15px;">Cargando…</span>
+</div>
+
+    <div id="tablaEnTempleContainer">
+      <i>Selecciona fecha y turno para mostrar resultados</i>
+    </div>
+  </div>
+</div>
+
+  <!-- ===== Modal Inventario ===== -->
+  <div class="modal" id="modalInv">
+    <div class="win" role="dialog" aria-modal="true">
+      <div class="head">
+        <div><b id="mdTitulo">Detalle</b></div>
+        <button class="close" id="btnCloseInv">Cerrar</button>
+      </div>
+      <div class="body">
+        <div class="kv">
+          <b>SOITEM</b><div id="mdSoitem"></div>
+          <b>Part</b><div id="mdPart"></div>
+          <b>Descripción</b><div id="mdDesc"></div>
+          <b>Prioridad</b><div id="mdPrio"></div>
+          <b>Longitud</b><div id="mdLong"></div>
+          <b>Pzs Pend</b><div id="mdPzs"></div>
+          <b>Kg Pend</b><div id="mdKg"></div>
+          <b>Máquina</b><div id="mdMac"></div>
+          <b>Planta</b><div id="mdPlanta"></div>
+          <b>Fecha</b><div id="mdFec"></div>
+        </div>
+        <hr style="margin:10px 0;border:0;border-top:1px solid var(--soft)">
+        <div class="kv">
+          <b>Comentario</b>
+          <div><input id="mdCmt" type="text" placeholder="Agregar/editar comentario..."></div>
+          <b>Trazabilidad</b>
+          <div id="mdTrace" style="font-size:12.5px;color:#ddd">(sin registros)</div>
+        </div>
+
+
+
+
+
+<!-- Modal: Novedades Extrusión -->
+<div class="modal" id="modalExtrusion">
+  <div class="window">
+    <div class="head">
+      <b>Novedades - Extrusión</b>
+      <div class="tools">
+        <button class="btn" onclick="exportTable('tablaNovedades')">Exportar</button>
+        <button class="close" onclick="closeModal('modalExtrusion')">Cerrar</button>
+      </div>
+      <div class="actions">
+        <button class="btn-mini warn" id="btnGuardarCmt">💬 Guardar comentario</button>
+        <button class="btn-mini ok" id="btnOk">✅ OK</button>
+        <button class="btn-mini rev" id="btnRegresar">↩️ Regresar a pendientes</button>
+    </div>
+    <div class="body printable">
+      <div class="pager">
+        <label>Mostrar
+          <select id="pgSizeNvx" onchange="renderPaged('tablaNovedades')">
+            <option>10</option><option>25</option><option>50</option><option>100</option>
+            <option value="999999">Todos</option>
+          </select> registros
+        </label>
+        <div class="info" id="infoNvx"></div>
+      </div>
+      <table id="tablaNovedades"><thead><tr>
+        <th class="sortable" data-col="0">Soitem</th><th class="sortable" data-col="1">Part</th><th class="sortable" data-col="2">Descripción</th>
+        <th class="sortable" data-col="3">Prio</th><th class="sortable" data-col="4">Pzs TMP-IN</th>
+        <th class="sortable" data-col="5">Kg TMP-IN</th><th class="sortable" data-col="6">Pzs EXTRUDE</th><th class="sortable" data-col="7">Kg EXTRUDE</th>
+        <th class="sortable" data-col="8">Dif Pzs</th><th class="sortable" data-col="9">Dif Kg</th>
+        <th class="sortable" data-col="10">Máquina</th><th class="sortable" data-col="11">Fecha</th><th class="sortable" data-col="12">Línea</th><th class="sortable" data-col="13">Planta</th><th class="sortable" data-col="14">Cliente</th>
+      </tr></thead><tbody></tbody></table>
+    </div>
+  </div>
+</div>
+
+  <!-- ===== Drawer ===== -->
+  <div class="drawer" id="drawer">
+<!-- Modal: Novedades Sorting -->
+<div class="modal" id="modalSorting">
+  <div class="window">
+    <div class="head">
+      <span>Menú principal</span>
+      <button id="btnCloseDrawer">✕</button>
+    </div>
+    <div class="body">
+      <div class="opt" data-target="temperaturas">
+        <b>Registro de Temperaturas</b><br>
+        <small>Lecturas por zona y ciclo</small>
+      </div>
+      <div class="opt" data-target="inventario">
+        <b>Inventario Por Templar</b><br>
+        <small>Gestión y trazabilidad</small>
+      </div>
+      <div class="opt" data-target="planos">
+        <b>Consulta de Planos</b><br>
+        <small>Acceso directo a los planos</small>
+      <b>Novedades - Sorting</b>
+      <div class="tools">
+        <button class="btn" onclick="exportTable('tablaTemperMayor')">Exportar</button>       
+        <button class="close" onclick="closeModal('modalSorting')">Cerrar</button>
+      </div>
+    </div>
+  </div>
+  <div class="drawer-mask" id="drawerMask"></div>
+
+  <!-- ===== Visor de Planos (modal con PDF.js) ===== -->
+  <div id="visorPlanosModal">
+    <div id="visorCont" oncontextmenu="return false;">
+      <div id="visorHeader">
+        <b id="visorTitulo">Plano</b>
+        <button id="btnCerrarVisor">Cerrar</button>
+    <div class="body printable">
+      <div class="pager">
+        <label>Mostrar
+          <select id="pgSizeNvs" onchange="renderPaged('tablaTemperMayor')">
+            <option>10</option><option>25</option><option>50</option><option>100</option>
+            <option value="999999">Todos</option>
+          </select> registros
+        </label>
+        <div class="info" id="infoNvs"></div>
+      </div>
+      <iframe id="visorIframe" src="about:blank" sandbox="allow-scripts allow-same-origin"></iframe>
+      <table id="tablaTemperMayor"><thead><tr>
+        <th class="sortable" data-col="0">Soitem</th><th class="sortable" data-col="1">Pzs TMP-IN</th><th class="sortable" data-col="2">Pzs TEMPER</th>
+        <th class="sortable" data-col="3">Diferencia</th><th class="sortable" data-col="4">Máquina</th><th class="sortable" data-col="5">Part</th>
+        <th class="sortable" data-col="6">Acabado</th><th class="sortable" data-col="7">Turno</th><th class="sortable" data-col="8">Fecha</th><th class="sortable" data-col="9">Horas</th>
+      </tr></thead><tbody></tbody></table>
+    </div>
+  </div>
+</div>
+
+<script>
+"use strict";
+<!-- Overlay -->
+<div class="overlay" id="loadingOverlay">
+  <div class="panel"><div class="spinner"></div><div id="loadingText">Cargando datos...</div></div>
+</div>
+
+/* ==================== Firebase ==================== */
+<script>
+/* ===========================
+   Firebase (igual que tu app)
+   =========================== */
+const firebaseConfig = {
+  apiKey:"AIzaSyAB4UlwaVJzc4U4VbmddLf4mejKAOvTufw",
+ 
+  authDomain: "hornosapp-60887.firebaseapp.com",
+  databaseURL: "https://hornosapp-60887-default-rtdb.firebaseio.com",
+  projectId: "hornosapp-60887",
+};
+firebase.initializeApp(firebaseConfig);
+const db = firebase.database();
+const auth = firebase.auth();
+const dbInv = db.ref("inventarioPorTemplar");
+
+/* ==================== Helpers ==================== */
+const $ = id => document.getElementById(id);
+const pad2 = n => String(n).padStart(2,'0');
+const hoyISO = () => new Date().toISOString().slice(0,10);
+function addHoursToHHMM(hhmm, plus=10){
+  if(!hhmm) return "";
+  const [h,m] = hhmm.split(':').map(Number);
+  const dt = new Date(); dt.setHours(h||0,m||0,0,0); dt.setHours(dt.getHours()+plus);
+  return pad2(dt.getHours())+':'+pad2(dt.getMinutes());
+}
+function horaAhoraHHMM(){ const d = new Date(); return pad2(d.getHours())+':'+pad2(d.getMinutes()); }
+function toAMPM(hhmm){
+  if(!hhmm) return '';
+  const [h,m] = hhmm.split(':').map(Number);
+  let hour = h % 12 || 12; const ampm = h >= 12 ? 'PM' : 'AM';
+  return `${hour}:${pad2(m)} ${ampm}`;
+}
+
+/* ==================== Estado Temperaturas (igual que antes) ==================== */
+let currentCicloId = "";
+let liveRef = null;
+$('fecha').value = hoyISO();
+$('horaInicio').value = horaAhoraHHMM();
+$('horaFin').value = addHoursToHHMM($('horaInicio').value,10);
+$('horno').value = '';
+$('turno').value = '';
+$('selActivos').innerHTML = '<option value="">-- Ninguno --</option>';
+
+function bindDeletes(){
+  document.querySelectorAll('#tbody .del').forEach(btn=>{
+    btn.onclick = ()=> btn.closest('tr').remove();
+const db      = firebase.database();
+const dbInv   = db.ref("inventarioPorTemplar");
+
+
+// === Convertir hora 24H a AM/PM ===
+function convertirAMPM(horaStr) {
+  if (!horaStr) return "";
+
+  let [h, m] = horaStr.split(":");
+  h = parseInt(h);
+
+  const ampm = h >= 12 ? "p. m." : "a. m.";
+  h = h % 12;
+  if (h === 0) h = 12;
+
+  return `${h}:${m} ${ampm}`;
+}
+
+
+
+// === Normalizar únicamente el horno ITALIANO ===
+function normalizarItaliano(nombre) {
+  if (!nombre) return "";
+  nombre = nombre.trim().toUpperCase();
+
+  // Si el nombre contiene la palabra ITALIANO → lo unifica
+  if (nombre.includes("ITALIANO")) return "ITALIANO";
+
+  return nombre;
+}
+
+
+// =========================
+// A — Escuchar ciclosActivos
+// =========================
+// 1. Declara el map
+let ciclosActivosMap = {};
+
+// 2. Declaras la función que escucha Firebase
+function escucharCiclosActivos() {
+  db.ref("ciclosActivos").on("value", snap => {
+    ciclosActivosMap = {};
+    snap.forEach(child => {
+      const meta = child.val()?.meta;
+      if (!meta) return;
+
+      const clave = normalizarItaliano(meta.horno);
+      ciclosActivosMap[clave] = {
+        horaInicio: meta.horaInicio || "",
+        horaFin: meta.horaFin || ""
+      };
+    });
+
+    console.log("🔥 ciclosActivosMap:", ciclosActivosMap);
+  });
+}
+
+// 3. ❗ ACTIVA EL LISTENER AQUÍ
+escucharCiclosActivos();
+
+/* ===========================
+   Estado / Cache
+   =========================== */
+let currentView='dashboard';
+let lineasMap={};
+let datosPendientes=[];    // Extrusión → Por Templar
+let datosNovedades=[];     // Extrusión → Novedades (Modal)
+let mayoresTMP=[];         // Sorting → Por Entregar (pendientes)
+let mayoresTemper=[];      // Sorting → Novedades (Modal)
+
+let cacheAOk=false, cacheBOk=false; // para no recargar si ya se tiene
+let ultimaActualizacion = "";
+let ultimaVista = "Dashboard";   // ⬅️ nueva variable
+
+
+/* ===========================
+   UI Básica
+   =========================== */
+function toggleSidebar(){document.getElementById('sidebar').classList.toggle('collapsed');}
+function toggleSubmenu(name){const el=document.getElementById(name+'Submenu'); if(el) el.style.display=el.style.display==='block'?'none':'block';}
+function setLoading(show,text){const ov=document.getElementById('loadingOverlay');document.getElementById('loadingText').textContent=text||'Cargando datos...';ov.style.display=show?'flex':'none';}
+
+function showMenu(view){
+  currentView=view;
+
+  // Cambia el título
+  if(view==='dashboard') document.getElementById('pageTitle').textContent='Dashboard';
+  if(view==='por-templar') document.getElementById('pageTitle').textContent='Extrusión → Por Templar';
+  if(view==='por-entregar') document.getElementById('pageTitle').textContent='Sorting → Por Entregar';
+  if(view==='planilla-envejecimiento') document.getElementById('pageTitle').textContent='Reportes → Planilla Envejecimiento';
+  if(view==='en-temple') document.getElementById('pageTitle').textContent='Reportes → En Temple';
+
+
+  // Ocultar todas
+  document.getElementById('dashboardSection').classList.add('hidden');
+  document.getElementById('porTemplarSection').classList.add('hidden');
+  document.getElementById('porEntregarSection').classList.add('hidden');
+  document.getElementById('planillaEnvejecimientoSection').classList.add('hidden');
+  document.getElementById('enTempleSection').classList.add('hidden'); // ocultar
+
+
+  // Mostrar la que corresponde
+  if(view==='dashboard') document.getElementById('dashboardSection').classList.remove('hidden');
+  if(view==='por-templar') document.getElementById('porTemplarSection').classList.remove('hidden');
+  if(view==='por-entregar') document.getElementById('porEntregarSection').classList.remove('hidden');
+  if(view==='planilla-envejecimiento') document.getElementById('planillaEnvejecimientoSection').classList.remove('hidden');
+  if(view==='en-temple') document.getElementById('enTempleSection').classList.remove('hidden'); // mostrar 
+
+  // 🔹 Aquí actualizas los botones de la barra superior
+  refreshTopbarButtons();
+}
+
+
+/* ===========================
+   Botones dinámicos en Topbar
+   =========================== */
+function refreshTopbarButtons(){
+  const cont = document.querySelector(".top-bar .search-box");
+  cont.innerHTML = "";
+
+  if(currentView==='dashboard' || currentView==='por-templar' || currentView==='por-entregar'){
+    cont.innerHTML = `
+      <input id="globalSearch" placeholder="Buscar en la tabla visible..." oninput="applyGlobalSearch(this.value)">
+      <button class="btn" onclick="exportVisibleTable()">Exportar Excel</button>
+      <button class="btn" onclick="printVisible()">Imprimir</button>
+    `;
+  }
+
+  if(currentView==='planilla-envejecimiento'){
+    cont.innerHTML = `
+      <button class="btn" onclick="exportarPlanillaExcel()">Exportar Excel</button>
+      <button class="btn" onclick="window.print()">Imprimir</button>
+    `;
+  }
+}
+
+
+
+
+/* ===========================
+   Utilidades comunes
+   =========================== */
+function formatearFecha(fechaISO){
+  if(!fechaISO) return "";
+  const d=new Date(fechaISO); if(isNaN(d.getTime())) return "";
+  const dia=String(d.getDate()).padStart(2,'0'), mes=String(d.getMonth()+1).padStart(2,'0'), anio=d.getFullYear();
+  return `${dia}/${mes}/${anio}`;
+}
+function formatearFechaLocalColombia(dateObj){
+  if(!dateObj) return ''; return new Date(dateObj).toLocaleString('es-CO',{hour12:true});
+}
+function ahoraColombia(){ return new Date(new Date().toLocaleString("en-US",{timeZone:"America/Bogota"})); }
+function calcularDt3(dtStr,dt2Str,shiftValue){
+  const dt=new Date(dtStr), dt2=new Date(dt2Str);
+  const dt2Col=new Date(dt2.toLocaleString("en-US",{timeZone:"America/Bogota"}));
+  const h=dt2Col.getHours(), m=dt2Col.getMinutes(), s=dt2Col.getSeconds();
+  const y=dt.getUTCFullYear(), mo=dt.getUTCMonth(), d=dt.getUTCDate();
+  let dt3=new Date(y,mo,d,h,m,s); const turno=Number(shiftValue);
+  if(turno===2 && h>=0 && h<12) dt3.setDate(dt3.getDate()+1);
+  return dt3;
+}
+function getPlanta(ultimaMachine){
+  const m=(ultimaMachine||"").trim().toUpperCase();
+  if(["PRENSA 7-1","PRENSA 7-2","PRENSA 7-3","PRENSA 7-6","PRENSA 7-7","PRENSA 7-8"].includes(m)) return "A1";
+  if(["PRENSA 7-4"].includes(m)) return "A2";
+  if(["PRENSA 7-5","PRENSA 7-9","PRENSA 7-10"].includes(m)) return "A3";
+  return "OTRA";
+}
+
+/* ==========================================================
+   🔄 Último estado por SOITEM (Inventario → ERP)
+   ========================================================== */
+let ultimoEstadoPorSoitem = {}; // { soitem: {fechaBase, turno, fechaOK, comentario, ok} }
+let obsSortingMap = {}; // Observaciones exclusivas de SORTING → Por Entregar
+
+
+function escucharUltimosEstadosInventario() {
+  const ref = dbInv.child("revisados");
+  ref.on("value", (snapshot) => {
+    const data = snapshot.val() || {};
+    const map = {};
+
+    // Recorremos fechas y turnos para quedarnos con el más reciente por soitem
+    Object.entries(data).forEach(([fecha, turnos]) => {
+      Object.entries(turnos).forEach(([turno, items]) => {
+        Object.entries(items).forEach(([clave, val]) => {
+          if (!map[clave] || new Date(val.fechaOK) > new Date(map[clave].fechaOK)) {
+            map[clave] = {
+              fechaBase: fecha,
+              turno,
+              fechaOK: val.fechaOK,
+              comentario: val.comentario || null,
+              ok: !!val.ok,
+            };
+          }
+        });
+      });
+    });
+
+    ultimoEstadoPorSoitem = map;
+    // Si ya está dibujada la tabla, actualizamos la columna sin tocar lo demás
+    try { refreshColumnaEstadoInv(); } catch(e) {}
+  });
+}
+
+// 🔹 Texto/HTML que se mostrará en la columna
+function estadoInventarioHTML(soitem) {
+  const e = ultimoEstadoPorSoitem[soitem];
+  if (!e) {
+    return `<span style="color:#6b7280;">⏳ Pendiente</span>`;
+  }
+  if (e.ok) {
+    return `<span style="color:#059669;font-weight:700;">✅ OK</span><br><small>${e.turno} – ${e.fechaBase}</small>`;
+  }
+  // Tiene comentario
+  return `<span style="color:#f59e0b;">💬 ${e.comentario || "Comentario"}</span><br><small>${e.turno} – ${e.fechaBase}</small>`;
+}
+
+function escucharObsSorting() {
+  const ref = db.ref("sortingObservaciones");
+
+  ref.on("value", snap => {
+ 
+if (window.bloquearRedibujo) return; // <-- AGREGAR AQUÍ
+    obsSortingMap = {};
+    const data = snap.val() || {};
+
+    Object.entries(data).forEach(([soitem, val]) => {
+      obsSortingMap[soitem] = val.comentario || "";
+    });
+
+    // Si estamos viendo POR ENTREGAR → actualizar tabla
+    if (currentView === "por-entregar") {
+  actualizarSoloCeldasObservacion();
+}
+  });
+}
+
+/* ===========================
+   Fecha de última actualización
+   =========================== */
+function setUltimaActualizacion() {
+  const ahora = new Date();
+  const hora = ahora.toLocaleString("es-CO", { hour12: true });
+
+  if (currentView === "por-templar") {
+    document.getElementById("ultimaInfoTemplar").textContent =
+      `Última actualización: ${hora}`;
+  }
+  if (currentView === "por-entregar") {
+    document.getElementById("ultimaInfoEntregar").textContent =
+      `Última actualización: ${hora}`;
+  }
+  if (currentView === "dashboard") {
+    document.getElementById("ultimaInfoDashboard").textContent =
+      `Última actualización: ${hora}`;
+  }
+
+  // además se mantiene para impresión
+  document.body.setAttribute("data-ultima", hora);
+  document.body.setAttribute("data-vista", currentView);
+}
+
+/* ===========================
+   Conexiones Reales
+   =========================== */
+async function cargarLineas() {
+  const url = "https://api.codetabs.com/v1/proxy?quest=" + encodeURIComponent("https://docs.google.com/spreadsheets/d/e/2PACX-1vRS6VAInZZmrWB1tVnoBZQQnMWuBkfKT3EKCnfDdTkObIQDAZfFFZnk6ga4afkfA-tvEady3I5ZXE07/pub?output=csv");
+  const resp = await fetch(url);
+  const csvText = await resp.text();
+
+  const rows = csvText.split(/\r?\n/).map(r => r.split(","));
+  const headers = rows.shift().map(h => h.trim().toUpperCase());
+
+  const claveIndex = headers.findIndex(h => 'SOITEM' === h);
+  const lineaIndex = headers.findIndex(h => 'LINEA' === h);
+
+  lineasMap = {};
+  rows.forEach(row => {
+    const clave = (row[claveIndex] || "").trim();
+    const linea = (row[lineaIndex] || "").trim() || "-";
+    if (clave) lineasMap[clave] = linea;
+  });
+}
+
+async function consultarDepartamento(fechaInicio,fechaFin,departamento){
+  const payload={Fecha_inicial:fechaInicio,Fecha_final:fechaFin,Departamento:departamento};
+  const resp=await fetch("https://optima.tecnoglass.net/api/alutions_production/reports-producion/Detalle-produccion",{
+    method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)
+  });
+  const json=await resp.json();
+  let detalle=[]; if(json?.data && Array.isArray(json.data)){ json.data.forEach(d=>{ if(Array.isArray(d.DetalleProduccion)) detalle=detalle.concat(d.DetalleProduccion); });}
+  return detalle;
+}
+async function obtenerAleacionTemper(){
+  const hoy=new Date(); const hace3=new Date(hoy); hace3.setDate(hoy.getDate()-3);
+  const desde=hace3.toISOString().slice(0,10), hasta=hoy.toISOString().slice(0,10);
+  const payload={Fecha_inicial:desde,Fecha_final:hasta,Departamento:null};
+  const resp=await fetch("https://optima.tecnoglass.net/api/alutions_production/reporte-extruccion",{
+    method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)
+  });
+  const json=await resp.json(); let prensa=[], sierra=[];
+  if(json?.data && Array.isArray(json.data)){ json.data.forEach(item=>{ if(Array.isArray(item.Prensa)) prensa=prensa.concat(item.Prensa); if(Array.isArray(item.Sierra)) sierra=sierra.concat(item.Sierra); });}
+  const mapa={};
+  prensa.forEach(r=>{const clave=`${r.so}-${r.Soitem}`; mapa[clave]=mapa[clave]||{}; mapa[clave].aleacion=r.Aleacion||"";});
+  sierra.forEach(r=>{const clave=`${r.sonum}-${r.soitemnum}`; mapa[clave]=mapa[clave]||{}; mapa[clave].temper=r.temper||"";});
+  return mapa;
+}
+
+/* ===========================
+   Dashboard (Resumen + Gráficas)
+   =========================== */
+let chart1=null, chart2=null, chart3=null;
+
+function generarTablaResumenPendientes(pendientes){
+  const host=document.getElementById('tablaResumenPendientes');
+  if(!pendientes.length){ host.innerHTML='<i>No hay datos (carga Extrusión/Sorting con Actualizar)</i>'; return; }
+  const resumen={}; // {fecha:{A1,A2,A3}}
+  pendientes.forEach(p=>{
+    const fecha=p.ultimaFecha, planta=p.planta;
+    if(!resumen[fecha]) resumen[fecha]={A1:0,A2:0,A3:0};
+    if(["A1","A2","A3"].includes(planta)) resumen[fecha][planta]+= (Number(p.kgPend)||0);
+  });
+  let totalA1=0,totalA2=0,totalA3=0,totalGeneral=0;
+  let html=`<table><thead><tr><th>Fecha</th><th>A1</th><th>A2</th><th>A3</th><th>Total</th></tr></thead><tbody>`;
+  Object.entries(resumen).forEach(([fecha,plantas])=>{
+    const totalDia=(plantas.A1||0)+(plantas.A2||0)+(plantas.A3||0);
+    totalA1+=plantas.A1||0; totalA2+=plantas.A2||0; totalA3+=plantas.A3||0; totalGeneral+=totalDia;
+    html+=`<tr><td>${fecha}</td><td>${(plantas.A1||0).toFixed(0)}</td><td>${(plantas.A2||0).toFixed(0)}</td><td>${(plantas.A3||0).toFixed(0)}</td><td>${totalDia.toFixed(0)}</td></tr>`;
+  });
+  html+=`<tr><td><b>Total</b></td><td><b>${totalA1.toFixed(0)}</b></td><td><b>${totalA2.toFixed(0)}</b></td><td><b>${totalA3.toFixed(0)}</b></td><td><b>${totalGeneral.toFixed(0)}</b></td></tr>`;
+  html+=`</tbody></table>`;
+  host.innerHTML=html;
+}
+
+function renderDashboard(){
+  // Resumen con datos de Extrusión (si ya cargó)
+  if(datosPendientes.length) generarTablaResumenPendientes(datosPendientes);
+
+  // Chart 1: Kg Pendientes por Descripción (de Por Templar)
+  const byDesc={}; datosPendientes.forEach(r=>{byDesc[r.descrip]=(byDesc[r.descrip]||0)+(Number(r.kgPend)||0);});
+  const c1=document.getElementById('chartKgDescripcion').getContext('2d'); if(chart1) chart1.destroy();
+  chart1=new Chart(c1,{type:'bar',data:{labels:Object.keys(byDesc),datasets:[{label:'Kg Pend',data:Object.values(byDesc)}]}});
+
+  // Chart 2: Kg Pendientes por Prioridad (de Por Templar)
+  const byPrio={}; datosPendientes.forEach(r=>{byPrio[r.prio]=(byPrio[r.prio]||0)+(Number(r.kgPend)||0);});
+  const c2=document.getElementById('chartKgPrio').getContext('2d'); if(chart2) chart2.destroy();
+  chart2=new Chart(c2,{type:'pie',data:{labels:Object.keys(byPrio),datasets:[{data:Object.values(byPrio)}]}});
+
+  // Chart 3: Diferencias por Máquina (de Por Entregar)
+  const byHorno={}; mayoresTMP.forEach(r=>{byHorno[r.Machine]=(byHorno[r.Machine]||0)+(Number(r.pendiente)||0);});
+  const c3=document.getElementById('chartDiferenciasHorno').getContext('2d'); if(chart3) chart3.destroy();
+  chart3=new Chart(c3,{type:'bar',data:{labels:Object.keys(byHorno),datasets:[{label:'Dif',data:Object.values(byHorno)}]}});
+}
+
+/* ===========================
+   Render Tablas y helpers
+   =========================== */
+function clearTable(tableId){ const tb=document.querySelector('#'+tableId+' tbody'); if(tb) tb.innerHTML=''; }
+
+function renderTablaA(){
+  const tb=document.querySelector('#tablaPendientes tbody');
+  tb.innerHTML=datosPendientes.map(r=>`
+    <tr>
+      <td>${r.clave}</td>
+      <td>${r.Part}</td>
+      <td>${r.descrip}</td>
+      <td>${r.prio}</td>
+      <td>${r.piezasPend}</td>
+      <td>${(r.kgPend??0).toFixed(0)}</td>
+      <td>${r.long}</td>
+      <td>${r.ultimaMachine}</td>
+      <td>${r.linea}</td>
+      <td>${r.temper}</td>
+      <td>${r.ultimaFecha}</td>
+      <td>${r.aleacion}</td>
+      <td>${r.planta}</td>
+      <td>${r.cliente}</td>
+      <!-- 👇 NUEVA COLUMNA -->
+      <td class="col-estado-inv">${estadoInventarioHTML(r.clave)}</td>
+    </tr>
+  `).join('');
+
+  buildFiltersFor('tablaPendientes');
+  attachSortHandlers('tablaPendientes');
+  renderPaged('tablaPendientes');
+  recalcTotalKg();
+}
+
+// Reescribe solo la última columna de cada fila usando el SOITEM de la col 0
+function refreshColumnaEstadoInv(){
+  const rows = document.querySelectorAll('#tablaPendientes tbody tr');
+  rows.forEach(tr => {
+    const soitem = (tr.cells[0]?.textContent || '').trim();  // col 0 = SOITEM
+    const tdEstado = tr.querySelector('.col-estado-inv') || tr.cells[tr.cells.length-1];
+    if (soitem && tdEstado) tdEstado.innerHTML = estadoInventarioHTML(soitem);
+  });
+}
+
+
+function renderTablaB() {
+  const tb = document.querySelector('#tablaPendientesTemper tbody');
+
+  tb.innerHTML = mayoresTMP.map(r => {
+    const obs = obsSortingMap[r.soitem] || "";
+
+    // reducir letra si es largo
+    const clase = (obs.length > 25) ? "long-text" : "";
+
+    return `
+      <tr>
+        <td>${r.soitem}</td>
+        <td>${r.tmpin}</td>
+        <td>${r.temper}</td>
+        <td>${r.pendiente}</td>
+        <td>${r.Machine}</td>
+        <td>${r.Part}</td>
+        <td>${r.Descripcion}</td>
+        <td>${r.Turno}</td>
+        <td>${r.FechaDT3}</td>
+        <td>${r.HorasTrans}</td>
+
+        <!-- columna observaciones -->
+        <td>
+          <div class="obs-cell ${clase}"
+     data-soitem="${r.soitem}"
+     contenteditable="true"
+     onfocus="window.bloquearRedibujo = true"
+     onblur="window.bloquearRedibujo = false; guardarObsSorting('${r.soitem}', this.innerText)">
+  ${obs}
+</div>
+
+        </td>
+      </tr>
+    `;
+  }).join('');
+
+  // filtros y paginado existentes
+  buildFiltersFor('tablaPendientesTemper');
+  attachSortHandlers('tablaPendientesTemper');
+  renderPaged('tablaPendientesTemper');
+}
+
+
+function renderTablaNovedades(){
+  const tb=document.querySelector('#tablaNovedades tbody');
+  tb.innerHTML=datosNovedades.map(r=>`
+    <tr>
+      <td>${r.clave}</td><td>${r.Part}</td><td>${r.descrip}</td><td>${r.prio}</td><td>${r.piezasTmp}</td>
+      <td>${(r.kgTmp??0).toFixed(0)}</td><td>${r.piezasExtrude}</td><td>${(r.kgExtrude??0).toFixed(0)}</td>
+      <td>${r.diffPiezas}</td><td>${(r.diffKg??0).toFixed(2)}</td>
+      <td>${r.ultimaMachine}</td><td>${r.ultimaFecha}</td><td>${r.linea}</td><td>${r.planta}</td><td>${r.cliente}</td>
+    </tr>
+  `).join('');
+  attachSortHandlers('tablaNovedades'); renderPaged('tablaNovedades');
+}
+function renderTablaTemperMayor(){
+  const tb=document.querySelector('#tablaTemperMayor tbody');
+  tb.innerHTML=mayoresTemper.map(r=>`
+    <tr>
+      <td>${r.soitem}</td><td>${r.tmpin}</td><td>${r.temper}</td><td>${r.diferencia}</td><td>${r.Machine}</td>
+      <td>${r.Part}</td><td>${r.Descripcion}</td><td>${r.Turno}</td><td>${r.FechaDT3}</td><td>${r.HorasTrans}</td>
+    </tr>
+  `).join('');
+  attachSortHandlers('tablaTemperMayor'); renderPaged('tablaTemperMayor');
+}
+
+function recalcTotalKg(){
+  const tableId='tablaPendientes';
+  const rows=[...document.querySelectorAll('#'+tableId+' tbody tr')].filter(r=>r.style.display!=='none');
+  const total=rows.reduce((s,r)=> s+(Number(r.cells[5].textContent)||0), 0);
+  const el=document.getElementById('totalKgPend'); if(el) el.textContent=total.toLocaleString();
+}
+
+/* ==========================
+   Helpers
+   ========================== */
+
+// Devuelve el primer valor no vacío de un objeto
+const pick = (obj, ...keys) => {
+  for (const k of keys) {
+    const v = obj?.[k];
+    if (v !== undefined && v !== null && v !== "") return v;
+  }
+  return "";
+};
+
+// Normaliza texto (ej: hornos, claves)
+const normalize = (s) => (s || "").toString().trim().toUpperCase();
+
+// Divide "allot" en Aleación (números) y Temple (texto)
+function splitAllot(allot){
+  let aleacion = "", temple = "";
+  const txt = (allot ?? "").toString().trim().replace("-", ""); // quitar guiones
+  const m = txt.match(/^\s*(\d{4,})\s*(.*)$/);
+  if (m) { 
+    aleacion = m[1]; 
+    temple = (m[2] || "").trim(); 
+  } else { 
+    aleacion = txt; 
+  }
+  return { aleacion, temple };
+}
+
+/* ==========================
+   Generar Planilla
+   ========================== */
+async function generarPlanilla(){
+document.getElementById("loadingEnvejecimiento").style.display = "block";
+document.getElementById("planillaContainer").style.display = "none";
+
+
+  try{
+    const fecha = document.getElementById("fechaPlanilla").value;     // "2025-09-15"
+    const turnoSel = (document.getElementById("turnoPlanilla").value || "").toString().trim(); 
+    const hornoSel = normalize(document.getElementById("hornoPlanilla").value);
+
+
+    if(!fecha || !turnoSel || !hornoSel){ 
+      alert("⚠️ Selecciona fecha, turno y horno."); 
+      return; 
+    }
+
+    // Calcular rango: fecha y 3 días antes
+    const fechaObj = new Date(fecha);
+    const fechaInicio = new Date(fechaObj); 
+    fechaInicio.setDate(fechaObj.getDate() - 5);
+
+    // --- Llamado API ---
+    const payload = { 
+      Fecha_inicial: fechaInicio.toISOString().slice(0,10), 
+      Fecha_final: fecha, 
+      departamento: 3, 
+      turno: turnoSel, 
+      horno: hornoSel 
+    };
+    const resp = await fetch("https://optima.tecnoglass.net/api/alutions_production/reporte-extruccion", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload)
+    });
+    if(!resp.ok) throw new Error("HTTP "+resp.status);
+    const { data = [] } = await resp.json();
+
+    // --- Extraer bloques correctos ---
+    const tmpinData  = (data.find(b => Array.isArray(b?.TMPIN))?.TMPIN)  || [];
+    const sierraData = (data.find(b => Array.isArray(b?.Sierra))?.Sierra) || [];
+
+    // --- Mapa Sierra por clave soitemnum-sonum ---
+    const sierraMap = new Map();
+    for (const s of sierraData){
+      const soitem = pick(s, "soitemnum","Soitemnum","Soitem","soitem");
+      const sonum  = pick(s, "sonum","Sonum","so","So");
+      const key = `${soitem}-${sonum}`;
+      sierraMap.set(key, {
+        long: pick(s, "long","Long","longitud","Longitud"),
+        prensa: pick(s, "MachineName","machine","Prensa","prensa")
+      });
+    }
+
+    // --- Filtro por horno + turno + fecha ---
+    const tmpinFiltrado = tmpinData.filter(r => {
+      const hornoRow  = normalize(pick(r, "MachineName","Horno","horno","machine"));
+      const turnoRow  = (pick(r, "shift","Shift","turno","Turno") || "").toString().trim();
+      const fechaRow  = new Date(r.dt).toISOString().slice(0,10); // normalizar dt
+      return (hornoRow === hornoSel) && (turnoRow === turnoSel) && (fechaRow === fecha);
+    });
+
+    if(!tmpinFiltrado.length){
+      alert("⚠️ No se encontraron registros para ese horno y turno.");
+      return;
+    }
+
+    // --- Rellenar la tabla (ordenada por CANASTA) ---
+const tbody = document.getElementById("tbodyPlanilla");
+tbody.innerHTML = "";
+
+// 🔹 Ordenar primero por el campo Rack (Canasta)
+const tmpinOrdenado = tmpinFiltrado.slice().sort((a, b) => {
+  const ra = (a.Rack || a.rack || "").toString().trim();
+  const rb = (b.Rack || b.rack || "").toString().trim();
+  // Orden numérico si ambos son números, si no alfabético
+  const na = parseFloat(ra);
+  const nb = parseFloat(rb);
+  if (!isNaN(na) && !isNaN(nb)) return na - nb;
+  return ra.localeCompare(rb, "es", { numeric: true, sensitivity: "base" });
+});
+
+// 🔹 Cargar filas ordenadas
+tmpinOrdenado.forEach((r, idx) => {
+  const soitem = pick(r, "soitemnum","Soitemnum","Soitem","soitem");
+  const sonum  = pick(r, "sonum","Sonum","so","So");
+  const clave  = `${soitem}-${sonum}`;   // clave para cruce con Sierra
+
+  const matchS = sierraMap.get(clave) || {};
+  const { aleacion, temple } = splitAllot(pick(r, "allot","Allot"));
+
+  const tr = document.createElement("tr");
+  tr.innerHTML = `
+    <td>${idx+1}</td>
+    <td>${pick(r,"Rack","rack")}</td>
+    <td>${sonum}-${soitem}</td>
+    <td>${pick(r,"dienum","Part","Referencia","referencia")}</td>
+    <td>${pick(r,"pc","Pc","PcProd","cantidad")}</td>
+    <td>${matchS.long || ""}</td>
+    <td>${pick(r,"kg","Kg","KgProd")}</td>
+    <td>${pick(r,"cliente","Cliente")}</td>
+    <td>${pick(r,"descrip","Descripcion","descripcion")}</td>
+    <td>${matchS.prensa || ""}</td>
+    <td></td>
+    <td>${temple}</td>
+    <td>${pick(r,"prio","Prio")}</td>
+    <td>${aleacion}</td>
+    <td></td>
+    <td></td>
+  `;
+  tbody.appendChild(tr);
+});
+
+
+    // Encabezados
+    document.getElementById("fechaIngreso").textContent = fecha;
+    document.getElementById("turnoTexto").textContent  = turnoSel;
+    document.getElementById("hornoTexto").textContent  = document.getElementById("hornoPlanilla").value;
+
+document.getElementById("loadingEnvejecimiento").style.display = "none";
+document.getElementById("planillaContainer").style.display = "block";
+
+
+ } catch(err) {
+  console.error(err);
+  document.getElementById("loadingEnvejecimiento").style.display = "none";
+  document.getElementById("planillaContainer").style.display = "block";
+  alert("❌ Error al generar planilla: " + (err.message || err));
+}
+}
+bindDeletes();
+
+$('btnAgregarFila').onclick = ()=>{
+  const now = horaAhoraHHMM();
+  const tr = document.createElement('tr');
+  tr.innerHTML = `
+    <td><input type="time" class="hora" value="${now}"></td>
+    <td><input type="number" class="zona1" step="0.1"></td>
+    <td><input type="number" class="zona2" step="0.1"></td>
+    <td><input type="number" class="zona3" step="0.1"></td>
+    <td><input type="number" class="zona4" step="0.1"></td>
+    <td><input type="number" class="setPoint" step="0.1"></td>
+    <td><button class="del" type="button" style="background:var(--accent);color:#000">✕</button></td>
+  `;
+  $('tbody').appendChild(tr);
+  bindDeletes();
+};
+
+const chart = new Chart($('chart').getContext('2d'), {
+  type:'line',
+  data:{ labels: [], datasets:[
+    {label:'Zona 1', data:[], borderColor:'red', fill:false, tension:0.2},
+    {label:'Zona 2', data:[], borderColor:'green', fill:false, tension:0.2},
+    {label:'Zona 3', data:[], borderColor:'blue', fill:false, tension:0.2},
+    {label:'Zona 4', data:[], borderColor:'purple', fill:false, tension:0.2},
+    {label:'SetPoint', data:[], borderColor:'orange', borderDash:[6,4], fill:false, tension:0}
+  ]},
+  options:{responsive:true,maintainAspectRatio:false,animation:false}
+});
+/* ====== Paginación simple ====== */
+function renderPaged(tableId){
+  let sizeSel, infoEl;
+  if(tableId === 'tablaPendientes'){
+    sizeSel = document.getElementById('pgSizeA');
+    infoEl  = document.getElementById('infoA');
+  } else if(tableId === 'tablaPendientesTemper'){
+    sizeSel = document.getElementById('pgSizeB');
+    infoEl  = document.getElementById('infoB');
+  } else if(tableId === 'tablaNovedades'){
+    sizeSel = document.getElementById('pgSizeNvx');
+    infoEl  = document.getElementById('infoNvx');
+  } else if(tableId === 'tablaTemperMayor'){
+    sizeSel = document.getElementById('pgSizeNvs');
+    infoEl  = document.getElementById('infoNvs');
+  }
+
+async function cargarActivosSelect(){
+  const horno = $('horno').value, fecha = $('fecha').value, turno = $('turno').value;
+  const snap = await db.ref('ciclosActivos').once('value');
+  const sel = $('selActivos');
+  sel.innerHTML = `<option value="">-- Ninguno --</option>`;
+  snap.forEach(ch=>{
+    const meta = ch.val().meta || {};
+    if(meta.horno === horno && meta.fecha === fecha && meta.turno === turno){
+      const opt = document.createElement('option');
+      opt.value = ch.key;
+      opt.textContent = `${meta.horno} • ${meta.fecha} • ${meta.turno} • ${meta.horaInicio||'--'}`;
+      sel.appendChild(opt);
+    }
+  const pageSize = parseInt(sizeSel?.value || '25', 10);
+  const allRows = [...document.querySelectorAll('#'+tableId+' tbody tr')];
+
+  // solo filas que no están filtradas fuera
+  const visibles = allRows.filter(r => r.dataset.filteredOut!=='1');
+
+  // aplicar límite
+  visibles.forEach((r,i)=>{
+    r.style.display = (pageSize >= 999999 || i < pageSize) ? '' : 'none';
+  });
+}
+$('btnRecargar').addEventListener('click', cargarActivosSelect);
+['horno','fecha','turno'].forEach(id=> $(id).addEventListener('change', cargarActivosSelect));
+
+function detachLive(){
+  if(liveRef){ liveRef.off(); liveRef=null; }
+  chart.data.labels=[]; chart.data.datasets.forEach(ds=>ds.data=[]); chart.update();
+  $('cabecera').textContent='';
+  currentCicloId="";
+}
+function attachLive(cicloId){
+  detachLive();
+  if(!cicloId) return;
+  currentCicloId=cicloId;
+
+  db.ref(`ciclosActivos/${cicloId}/meta`).once('value').then(s=>{
+    const meta=s.val()||{};
+    $('horaInicio').value=meta.horaInicio||horaAhoraHHMM();
+    $('horaFin').value=meta.horaFin||addHoursToHHMM(meta.horaInicio||horaAhoraHHMM(),10);
+    $('operarioInicio').value=meta.operarioInicio||'';
+    $('cabecera').textContent=`Ciclo: ${meta.horno||''} | ${meta.fecha||''} | ${meta.turno||''}`;
+  // ocultar las que están fuera de la búsqueda/filtros
+  allRows.forEach(r=>{
+    if(r.dataset.filteredOut==='1') r.style.display='none';
+  });
+
+  liveRef=db.ref(`ciclosActivos/${cicloId}/lecturas`);
+  liveRef.on('value', snap=>{
+    const arr=[];
+    snap.forEach(ch=>{
+      const v=ch.val()||{};
+      arr.push({
+        hora: v.hora || horaAhoraHHMM(),
+        zona1: v.zona1 ?? '',
+        zona2: v.zona2 ?? '',
+        zona3: v.zona3 ?? '',
+        zona4: v.zona4 ?? '',
+        setPoint: v.setPoint ?? ''
+      });
+    });
+
+    chart.data.labels = arr.map(r => toAMPM(r.hora));
+    chart.data.datasets[0].data = arr.map(r => (r.zona1!=='' && r.zona1!=null && !isNaN(r.zona1)) ? Number(r.zona1) : null);
+    chart.data.datasets[1].data = arr.map(r => (r.zona2!=='' && r.zona2!=null && !isNaN(r.zona2)) ? Number(r.zona2) : null);
+    chart.data.datasets[2].data = arr.map(r => (r.zona3!=='' && r.zona3!=null && !isNaN(r.zona3)) ? Number(r.zona3) : null);
+    chart.data.datasets[3].data = arr.map(r => (r.zona4!=='' && r.zona4!=null && !isNaN(r.zona4)) ? Number(r.zona4) : null);
+    chart.data.datasets[4].data = arr.map(r => (r.setPoint!=='' && r.setPoint!=null && !isNaN(r.setPoint)) ? Number(r.setPoint) : null);
+    chart.update();
+
+    const tbody = $('tbody');
+    tbody.innerHTML = '';
+    if(arr.length === 0){
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td><input type="time" class="hora" value="${horaAhoraHHMM()}"></td>
+        <td><input type="number" class="zona1" step="0.1"></td>
+        <td><input type="number" class="zona2" step="0.1"></td>
+        <td><input type="number" class="zona3" step="0.1"></td>
+        <td><input type="number" class="zona4" step="0.1"></td>
+        <td><input type="number" class="setPoint" step="0.1"></td>
+        <td><button class="del" type="button" style="background:var(--accent);color:#000">✕</button></td>`;
+      tbody.appendChild(tr);
+    } else {
+      arr.forEach(r=>{
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td><input type="time" class="hora" value="${r.hora}"></td>
+          <td><input type="number" class="zona1" step="0.1" value="${r.zona1}"></td>
+          <td><input type="number" class="zona2" step="0.1" value="${r.zona2}"></td>
+          <td><input type="number" class="zona3" step="0.1" value="${r.zona3}"></td>
+          <td><input type="number" class="zona4" step="0.1" value="${r.zona4}"></td>
+          <td><input type="number" class="setPoint" step="0.1" value="${r.setPoint}"></td>
+          <td><button class="del" type="button" style="background:var(--accent);color:#000">✕</button></td>`;
+        tbody.appendChild(tr);
+      });
+    }
+    bindDeletes();
+  });
+  // actualizar info
+  const total = visibles.length;
+  const showing = (pageSize >= 999999) ? total : Math.min(pageSize,total);
+  if(infoEl) infoEl.textContent = `Mostrando ${showing} de ${total} registros`;
+
+  if(tableId==='tablaPendientes') recalcTotalKg();
+}
+$('selActivos').addEventListener('change',e=>{
+  const id=e.target.value;
+  if(!id){ detachLive(); return; }
+  attachLive(id);
+});
+
+$('btnNuevo').addEventListener('click', async ()=> {
+  const horno = $('horno').value.trim();
+  const fecha = $('fecha').value.trim();
+  const turno = $('turno').value.trim();
+  const horaInicio = $('horaInicio').value || horaAhoraHHMM();
+  const horaFin = $('horaFin').value || addHoursToHHMM(horaInicio,10);
+  const operarioInicio = $('operarioInicio').value.trim();
+
+  if(!horno || !fecha || !turno){
+    alert('⚠️ Debes seleccionar Horno, Fecha y Turno antes de iniciar.');
+    return;
+/* ====== Filtros ERP ====== */
+function toggleFilter(trigger,event){
+  event.stopPropagation();
+  const box=trigger.parentElement;
+  document.querySelectorAll('.filter-box').forEach(f=>{ if(f!==box) f.classList.remove('active'); });
+  box.classList.toggle('active');
+  if(box.classList.contains('active')){
+    const fc=box.querySelector('.filter-content');
+    if(fc && !fc.dataset.ready){ buildFilterBox(fc); fc.dataset.ready='1'; } else { refreshFilterBox(fc); }
+  }
+  const snapshot = await db.ref('ciclosActivos').once('value');
+  let duplicado = false;
+  snapshot.forEach(ch=>{
+    const meta = ch.val().meta || {};
+    if(meta.horno===horno && meta.fecha===fecha && meta.turno===turno){ duplicado = true; }
+  });
+  if(duplicado){ alert('🚫 Ya existe un ciclo activo para este Horno, Fecha y Turno.'); return; }
+
+  const meta = { horno, fecha, turno, horaInicio, horaFin, operarioInicio };
+  const newRef = await db.ref('ciclosActivos').push({ meta, lecturas: {} });
+  await cargarActivosSelect();
+  $('selActivos').value = newRef.key;
+  attachLive(newRef.key);
+  alert('✅ Ciclo iniciado correctamente.');
+}
+document.addEventListener('click',(e)=>{
+  document.querySelectorAll('.filter-box').forEach(f=>{ if(!f.contains(e.target)) f.classList.remove('active'); });
+});
+
+$('btnGuardar').addEventListener('click', async ()=> {
+  if(!currentCicloId){ alert('⚠️ Primero inicia o selecciona un ciclo activo.'); return; }
+  const rows = Array.from(document.querySelectorAll('#tbody tr'));
+  if(rows.length === 0){ alert('No hay lecturas para guardar.'); return; }
+  const refLecturas = db.ref(`ciclosActivos/${currentCicloId}/lecturas`);
+  const snap = await refLecturas.once('value');
+  const existentes = {};
+  snap.forEach(ch => { const val = ch.val(); if(val && val.hora) existentes[val.hora] = ch.key; });
+
+  const ops = [];
+  for(const tr of rows){
+    const hora = tr.querySelector('.hora').value;
+    if(!hora) continue;
+    const data = {
+      hora,
+      zona1: tr.querySelector('.zona1').value === '' ? null : parseFloat(tr.querySelector('.zona1').value),
+      zona2: tr.querySelector('.zona2').value === '' ? null : parseFloat(tr.querySelector('.zona2').value),
+      zona3: tr.querySelector('.zona3').value === '' ? null : parseFloat(tr.querySelector('.zona3').value),
+      zona4: tr.querySelector('.zona4').value === '' ? null : parseFloat(tr.querySelector('.zona4').value),
+      setPoint: tr.querySelector('.setPoint').value === '' ? null : parseFloat(tr.querySelector('.setPoint').value)
+    };
+    if(existentes[hora]) ops.push(refLecturas.child(existentes[hora]).set(data));
+    else ops.push(refLecturas.push(data));
+  }
+  if(ops.length === 0){ alert('No hay lecturas válidas.'); return; }
+  await Promise.all(ops);
+  alert('✅ Lecturas guardadas o actualizadas correctamente.');
+});
+function buildFiltersFor(tableId){
+  document.querySelectorAll(`#${tableId} thead .filter-content`).forEach(fc=>{ fc.dataset.ready=''; fc.innerHTML=''; });
+}
+function getVisibleRows(tableId){
+  // visibles según filtros + paginación (para conteos de caja mostramos según toda la tabla sin paginar)
+  return [...document.querySelectorAll('#'+tableId+' tbody tr')].filter(r=>r.style.display!=='none' || r.dataset._keep==='1');
+}
+
+$('btnFinalizar').addEventListener('click', async ()=> {
+  if(!currentCicloId){ alert('Selecciona o inicia primero un ciclo activo.'); return; }
+  const horaFinPrompt = prompt('Hora fin del ciclo (HH:MM):', $('horaFin').value || horaAhoraHHMM());
+  if(horaFinPrompt === null) return;
+  const operarioFin = prompt('Operario que finaliza:', '');
+  if(operarioFin === null) return;
+  const observaciones = prompt('Observaciones (opcional):', '') || '';
+
+  const snap = await db.ref(`ciclosActivos/${currentCicloId}`).once('value');
+  const node = snap.val();
+  if(!node){ alert('No se encontró el ciclo activo.'); return; }
+
+  node.meta = node.meta || {};
+  node.meta.horaFin = horaFinPrompt;
+  node.meta.operarioFin = operarioFin;
+  node.meta.observaciones = observaciones;
+
+  await db.ref('historicos').push(node);
+  await db.ref(`ciclosActivos/${currentCicloId}`).remove();
+
+  detachLive();
+  $('tbody').innerHTML = `<tr>
+    <td><input type="time" class="hora" value="${horaAhoraHHMM()}"></td>
+    <td><input type="number" class="zona1" step="0.1"></td>
+    <td><input type="number" class="zona2" step="0.1"></td>
+    <td><input type="number" class="zona3" step="0.1"></td>
+    <td><input type="number" class="zona4" step="0.1"></td>
+    <td><input type="number" class="setPoint" step="0.1"></td>
+    <td><button class="del" type="button" style="background:var(--accent);color:#000">✕</button></td>
+  </tr>`;
+  bindDeletes();
+
+  $('horaInicio').value = horaAhoraHHMM();
+  $('horaFin').value = addHoursToHHMM($('horaInicio').value,10);
+  $('operarioInicio').value = '';
+  await cargarActivosSelect();
+  alert('✅ Ciclo finalizado y movido a históricos.');
+});
+function buildFilterBox(fc){
+  const tableId=fc.dataset.table, col=Number(fc.dataset.col);
+  const head=document.createElement('div'); head.className='filter-head';
+  head.innerHTML=`<input placeholder="Buscar opciones...">`;
+  fc.appendChild(head);
+
+  const actions=document.createElement('div'); actions.className='filter-actions';
+  actions.innerHTML=`
+    <button class="mini" onclick="filterToggleAll('${tableId}',${col})">Seleccionar todo</button>
+    <button class="mini" onclick="filterSelectAll('${tableId}',${col},false)">Limpiar</button>
+    <button class="mini" onclick="filterApply('${tableId}',${col})">Aceptar</button>
+  `;
+  fc.appendChild(actions);
+
+/* ==================== Inventario por templar ==================== */
+const API_URL="https://optima.tecnoglass.net/api/alutions_production/reports-producion/Detalle-produccion";
+  const options=document.createElement('div'); options.className='filter-options'; fc.appendChild(options);
+
+function turnoDetallado(){
+  const ahora = new Date();
+  const h = ahora.getHours();
+  let turno = (h >= 7 && h < 19) ? "T1" : "T2";
+  let fechaBase = new Date(ahora);
+  if (turno === "T2" && h < 7) { fechaBase.setDate(fechaBase.getDate()-1); }
+  return { turno, fechaISO: fechaBase.toISOString().slice(0,10) };
+}
+function obtenerTurnoActual(){ return turnoDetallado().turno; }
+function fechaISO(){ return new Date().toISOString().slice(0,10); }
+$('lblTurno').textContent = `${turnoDetallado().turno} (${turnoDetallado().fechaISO})`;
+
+const toNum = v => isNaN(+v)?0:+v;
+function fFecha(iso){ if(!iso) return ""; const d=new Date(iso); if(isNaN(d)) return ""; return d.toLocaleString("es-CO",{hour12:true}); }
+function getPlanta(machine){
+  const m=(machine||"").trim().toUpperCase();
+  if(["PRENSA 7-1","PRENSA 7-2","PRENSA 7-3","PRENSA 7-6","PRENSA 7-7","PRENSA 7-8"].includes(m)) return "A1";
+  if(["PRENSA 7-4"].includes(m)) return "A2";
+  if(["PRENSA 7-5","PRENSA 7-9","PRENSA 7-10"].includes(m)) return "A3";
+  return "OTRA";
+  head.querySelector('input').addEventListener('input',()=>{
+    const q=head.querySelector('input').value.toLowerCase();
+    options.querySelectorAll('.filter-item').forEach(it=>{
+      const txt=it.dataset.val.toLowerCase(); 
+      it.style.display=txt.includes(q)?'':'none';
+    });
+  });
+
+  refreshFilterBox(fc);
+}
+
+let basePendientes = [];
+let maquinasSet = new Set();
+let vista = "pendientes";
+let cacheRevisadosTurno = {};
+
+function escucharRevisadosTurno(){
+  const {turno, fechaISO: fBase} = turnoDetallado();
+  const k = `${fBase}_${turno}`;
+  dbInv.child("revisados").child(fBase).child(turno).on("value", snap=>{
+    cacheRevisadosTurno[k] = snap.val() || {};
+    actualizarVistaPendientes(); // refresca SOLO la vista activa
+function refreshFilterBox(fc){
+  const tableId=fc.dataset.table, col=Number(fc.dataset.col);
+  const options=fc.querySelector('.filter-options'); 
+  if(!options) return;
+
+  // valores en toda la tabla
+  const allValues=new Map(); 
+  document.querySelectorAll('#'+tableId+' tbody tr').forEach(r=>{
+    const v=(r.cells[col]?.textContent||'').trim(); 
+    allValues.set(v,(allValues.get(v)||0)+1);
+  });
+}
+escucharRevisadosTurno();
+
+async function fetchDep(fi,ff,dep){
+  const resp=await fetch(API_URL,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({Fecha_inicial:fi,Fecha_final:ff,Departamento:dep})});
+  const json=await resp.json(); let det=[]; if(json?.data) json.data.forEach(d=>{ if(Array.isArray(d.DetalleProduccion)) det=det.concat(d.DetalleProduccion); });
+  return det;
+}
+async function cargarPendientes(){
+  const fi="2025-01-01", ff=fechaISO();
+  const [extrude,tmpin] = await Promise.all([fetchDep(fi,ff,"EXTRUDE"), fetchDep(fi,ff,"TMP-IN")]);
+
+  const exMap={}, tmMap={};
+  extrude.forEach(e=>{
+    const k=`${e.sonum}-${e.soitemnum}`;
+    if(!exMap[k]) exMap[k]={pzs:0,kg:0,ultima:null,mac:"-",Part:e.Part||"-",desc:e.descrip||"-",long:e.long||"-",prio:e.prio||"-",cli:e.cliente||"-"};
+    exMap[k].pzs += toNum(e.PcProd);
+    exMap[k].kg  += toNum(e.KgProd);
+    if(!exMap[k].ultima || new Date(e.dt)>new Date(exMap[k].ultima)){
+      exMap[k].ultima = e.dt;
+      exMap[k].mac    = (e.MachineName||"-").trim();
+
+  // valores visibles actuales (por filtros + búsqueda)
+  const visibleValues=new Map();
+  document.querySelectorAll('#'+tableId+' tbody tr').forEach(r=>{
+    if(r.dataset.filteredOut!=='1'){ 
+      const v=(r.cells[col]?.textContent||'').trim(); 
+      visibleValues.set(v,(visibleValues.get(v)||0)+1); 
+    }
+  });
+  tmpin.forEach(t=>{
+    const k=`${t.sonum}-${t.soitemnum}`;
+    if(!tmMap[k]) tmMap[k]={pzs:0,kg:0};
+    tmMap[k].pzs += toNum(t.PcProd);
+    tmMap[k].kg  += toNum(t.KgProd);
+  });
+
+  basePendientes = [];
+  maquinasSet.clear();
+
+  Object.entries(exMap).forEach(([k,v])=>{
+    const tm = tmMap[k] || {pzs:0,kg:0};
+    const pzPend = (v.pzs||0) - (tm.pzs||0);
+    const kgPend = (v.kg||0)  - (tm.kg||0);
+    if(pzPend>0){
+      const planta = getPlanta(v.mac);
+      basePendientes.push({
+        clave:k, piezasPend:pzPend, kgPend, ultimaMachine:v.mac, planta,
+        ultimaFechaRaw:v.ultima, Part:v.Part, descrip:v.desc, long:v.long, prio:v.prio, cliente:v.cli
+      });
+      maquinasSet.add(v.mac);
+  // conservar selección previa (aunque esté vacío)
+  const selectedExisting=new Set();
+  options.querySelectorAll('input[type="checkbox"]').forEach(cb=>{
+    if(cb.checked) {
+      selectedExisting.add(cb.closest('.filter-item').dataset.val);
+    }
+  });
+
+  popularSelectMaquinas();
+  $('ultimaInfoInv').textContent = "Última actualización: "+ new Date().toLocaleString("es-CO",{hour12:true});
+  actualizarVistaPendientes();
+}
+function popularSelectMaquinas(){
+  const sel = $('fMaquina'), cur = sel.value;
+  sel.innerHTML = '<option value="">Todas</option>';
+  Array.from(maquinasSet).sort((a,b)=>a.localeCompare(b,'es',{numeric:true})).forEach(m=>{
+    const o=document.createElement("option"); o.value=m; o.textContent=m; sel.appendChild(o);
+  // reconstruir lista
+  options.innerHTML='';
+  Array.from(allValues.keys()).sort((a,b)=>(''+a).localeCompare((''+b),'es')).forEach(v=>{
+    const isChecked = selectedExisting.size>0 ? selectedExisting.has(v) : true;
+    const totalCount=allValues.get(v)||0;
+    const visCount=visibleValues.get(v)||0;
+
+    const row=document.createElement('label'); 
+    row.className='filter-item'; 
+    row.dataset.val=v;
+    row.innerHTML=`
+  <input type="checkbox" ${isChecked?'checked':''}>
+  <span>${v || '<i>(vacío)</i>'}</span>
+  <small>${visCount}/${totalCount}</small>
+`;
+    options.appendChild(row);
+  });
+  if([...sel.options].some(o=>o.value===cur)) sel.value=cur;
+}
+	function applyHeaderFilter(tableId,col){
+  // Construir mapa de filtros activos (aunque queden 0 seleccionados)
+  const active={};
+  document.querySelectorAll(`#${tableId} thead .filter-content`).forEach(fc=>{
+    const c=Number(fc.dataset.col); 
+    const checks=fc.querySelectorAll('.filter-options input[type="checkbox"]');
+    if(!checks.length) return;
+    const vals=[...checks].filter(x=>x.checked).map(x=>x.closest('.filter-item').dataset.val);
+    active[c]=new Set(vals); // 🔑 incluso si size = 0
+  });
+
+function filtrarOrdenar(arr){
+  const planta = $('fPlanta').value||"";
+  const maq = $('fMaquina').value||"";
+  const q = ($('fBuscar').value||"").toLowerCase();
+  const ord = $('fOrden').value;
+
+  let res = arr.filter(r=>{
+    if(planta && r.planta!==planta) return false;
+    if(maq && r.ultimaMachine!==maq) return false;
+    if(q){
+      const blob = `${r.clave} ${r.Part} ${r.descrip}`.toLowerCase();
+      if(!blob.includes(q)) return false;
+  const rows=document.querySelectorAll('#'+tableId+' tbody tr');
+  rows.forEach(r=>{
+    let visible=true;
+    for(const [c,set] of Object.entries(active)){
+      const val=(r.cells[Number(c)]?.textContent||'').trim();
+      // si no hay ninguno seleccionado → ocultar todo
+      if(set.size===0 || !set.has(val)){
+        visible=false; break;
+      }
+    }
+    return true;
+    r.dataset.filteredOut = visible ? '0' : '1';
+  });
+
+  res.sort((a,b)=>{
+    if(ord==="fecha_desc") return new Date(b.ultimaFechaRaw) - new Date(a.ultimaFechaRaw);
+    if(ord==="fecha_asc")  return new Date(a.ultimaFechaRaw) - new Date(b.ultimaFechaRaw);
+    if(ord==="kg_desc")    return toNum(b.kgPend) - toNum(a.kgPend);
+    if(ord==="kg_asc")     return toNum(a.kgPend) - toNum(b.kgPend);
+    if(ord==="machine")    return (a.ultimaMachine||"").localeCompare((b.ultimaMachine||""),"es",{numeric:true});
+    if(ord==="part")       return (a.Part||"").localeCompare((b.Part||""),"es",{numeric:true});
+    if(ord==="desc")       return (a.descrip||"").localeCompare((b.descrip||""),"es",{numeric:true});
+    if(ord==="desc_rev")   return (b.descrip||"").localeCompare((a.descrip||""),"es",{numeric:true});
+    return 0;
+  });
+  // refrescar UI, paginación y totales
+  document.querySelectorAll(`#${tableId} thead .filter-content`).forEach(refreshFilterBox);
+  renderPaged(tableId);
+  if(tableId==='tablaPendientes') recalcTotalKg();
+}
+
+  return res;
+}
+
+function actualizarTotales(){
+  const {turno, fechaISO: fBase} = turnoDetallado();
+  const revisadosTurno = cacheRevisadosTurno[`${fBase}_${turno}`] || {};
+  const totalGeneral = basePendientes.reduce((s,r)=> s + toNum(r.kgPend), 0);
+  const pendientesNoRevisados = basePendientes.filter(r => !revisadosTurno[r.clave]);
+  const pendVisibles = filtrarOrdenar(pendientesNoRevisados);
+  const totalPendVis = pendVisibles.reduce((s,r)=> s + toNum(r.kgPend), 0);
+  const arrRev = Object.values(revisadosTurno).map(x=>x.record);
+  const revVisibles = filtrarOrdenar(arrRev);
+  const totalRevVis = revVisibles.reduce((s,r)=> s + toNum(r.kgPend), 0);
+  const avance = totalGeneral>0 ? ((totalRevVis/totalGeneral)*100).toFixed(1) : "0.0";
+  $('tTotalGeneral').textContent = Math.round(totalGeneral).toLocaleString();
+  $('tPendientes').textContent   = Math.round(totalPendVis).toLocaleString();
+  $('tRevisados').textContent    = Math.round(totalRevVis).toLocaleString();
+  $('tAvance').textContent       = `${avance}%`;
+
+  const porMac = {};
+  pendVisibles.forEach(r=>{
+    const m=r.ultimaMachine||"-";
+    porMac[m] = porMac[m] || {pend:0, rev:0};
+    porMac[m].pend += toNum(r.kgPend);
+  });
+  revVisibles.forEach(r=>{
+    const m=r.ultimaMachine||"-";
+    porMac[m] = porMac[m] || {pend:0, rev:0};
+    porMac[m].rev += toNum(r.kgPend);
+  });
+  const kpi = Object.entries(porMac)
+    .sort((a,b)=>a[0].localeCompare(b[0],'es',{numeric:true}))
+    .map(([m, v])=>{
+      const tot = v.pend + v.rev;
+      const p = tot>0 ? ((v.rev/tot)*100).toFixed(1) : "0.0";
+      return `<span><b>${m}</b>: ${p}%</span>`;
+    }).join(" · ");
+  $('kpiPorMac').innerHTML = kpi ? (`<b>Avance por máquina:</b> ${kpi}`) : "";
+}
+
+function renderPendientes(){
+  const cont = $('listPend'); cont.innerHTML="";
+  const {turno, fechaISO: fBase} = turnoDetallado();
+  const revisadosTurno = cacheRevisadosTurno[`${fBase}_${turno}`] || {};
+  const baseNoRevisados = basePendientes.filter(r => !revisadosTurno[r.clave]);
+  const arr = filtrarOrdenar(baseNoRevisados);
+
+  const frag=document.createDocumentFragment();
+  arr.forEach(r=>{
+    const el=document.createElement("div");
+    el.className="inv-card";
+    el.innerHTML = `
+      <div class="inv-head">
+        <div class="m">Máquina: ${r.ultimaMachine}</div>
+        <span class="badge">${r.planta}</span>
+      </div>
+      <div class="inv-meta">
+        <div><b>SOITEM:</b> ${r.clave}</div>
+        <div><b>Fecha:</b> ${fFecha(r.ultimaFechaRaw)}</div>
+        <div><b>Part:</b> ${r.Part}</div>
+        <div><b>Prioridad:</b> ${r.prio}</div>
+        <div><b>Descripción:</b> ${r.descrip}</div>
+        <div><b>Long:</b> ${r.long}</div>
+        <div><b>Pzs Pend:</b> ${r.piezasPend}</div>
+        <div><b>Kg Pend:</b> ${Math.round(r.kgPend||0)}</div>
+      </div>
+      <div class="inv-actions">
+        <button class="btn-mini" data-act="comentario">💬 Comentario</button>
+        <button class="btn-mini ok" data-act="ok">✅ OK</button>
+        <button class="btn-mini warn" data-act="detalle">🔎 Detalle</button>
+      </div>
+    `;
+    el.addEventListener("click",(ev)=>{
+      const act=ev.target?.dataset?.act;
+      if(act==="comentario"){
+        const texto = prompt("Comentario:");
+        if(texto === null || !texto.trim()) return;
+        guardarRevisado(r,{comentario:texto.trim(), ok:false});
+      }
+      if (act === "ok") {
+        const confirmacion = confirm("¿Confirmar revisión OK?");
+        if (!confirmacion) return;
+        ev.target.classList.add('confirmed');
+        guardarRevisado(r, { ok: true });
+      }
+      if(act==="detalle") abrirModal(r, "pendiente");
+    });
+    frag.appendChild(el);
+  });
+  cont.appendChild(frag);
+}
+
+function renderRevisados(){
+  const cont=$('listRevis'); cont.innerHTML="";
+  const {turno, fechaISO: fBase} = turnoDetallado();
+  const revMap = cacheRevisadosTurno[`${fBase}_${turno}`] || {};
+  let arr = Object.values(revMap).map(x=>x);
+
+  arr = arr.filter(it=>{
+    const r=it.record;
+    return filtrarOrdenar([r]).length>0;
+  }).sort((a,b)=> new Date(b.fechaOK) - new Date(a.fechaOK));
+
+  const frag=document.createDocumentFragment();
+  arr.forEach(it=>{
+    const r=it.record;
+    const estado = it.comentario ? `💬 ${it.comentario}` : `✅ OK`;
+    const el=document.createElement("div");
+    el.className="inv-card";
+    el.innerHTML=`
+      <div class="inv-head">
+        <div class="m">Máquina: ${r.ultimaMachine}</div>
+        <span class="badge">${r.planta}</span>
+      </div>
+      <div class="inv-meta">
+        <div><b>SOITEM:</b> ${r.clave}</div>
+        <div><b>Marcado:</b> ${fFecha(it.fechaOK)}</div>
+        <div><b>Part:</b> ${r.Part}</div>
+        <div><b>Prioridad:</b> ${r.prio}</div>
+        <div><b>Descripción:</b> ${r.descrip}</div>
+        <div><b>Long:</b> ${r.long}</div>
+        <div><b>Pzs Pend:</b> ${r.piezasPend}</div>
+        <div><b>Kg Pend:</b> ${Math.round(r.kgPend||0)}</div>
+        <div><b>Estado:</b> ${estado}</div>
+      </div>
+      <div class="inv-actions">
+        <button class="btn-mini warn" data-act="editar">✏️ Editar</button>
+        <button class="btn-mini rev" data-act="volver">↩️ Regresar</button>
+        <button class="btn-mini" data-act="detalle">🔎 Detalle</button>
+      </div>
+    `;
+    el.addEventListener("click",(ev)=>{
+      const act=ev.target?.dataset?.act;
+      if(act==="editar") editarComentario(r.clave);
+      if(act==="volver") regresarAPendientes(r.clave);
+      if(act==="detalle") abrirModal(r, "revisado");
+    });
+    frag.appendChild(el);
+
+
+function filterSelectAll(tableId,col,selectAll){
+  const fc=document.querySelector(`.filter-content[data-table="${tableId}"][data-col="${col}"]`);
+  if(!fc) return;
+
+  fc.querySelectorAll('.filter-options input[type="checkbox"]').forEach(cb=>{
+    cb.checked=!!selectAll;
+  });
+  cont.appendChild(frag);
+
+  applyHeaderFilter(tableId,col);
+  refreshFilterBox(fc); // 🔑 fuerza refresco inmediato en la caja
+}
+
+async function renderHistorial(){
+  const cont = $('listHist'); 
+  cont.innerHTML = "";
+  const root = await dbInv.child("revisados").once("value");
+  const registros = [];
+  root.forEach(diaSnap=>{
+    const fecha = diaSnap.key;
+    diaSnap.forEach(turnoSnap=>{
+      const turno = turnoSnap.key;
+      turnoSnap.forEach(itemSnap=>{
+        const v = itemSnap.val()||{};
+        const r = v.record||{};
+        registros.push({
+          fechaPend: r.ultimaFechaRaw,
+          fechaMarcado: v.fechaOK,
+          turno,
+          clave: r.clave,
+          ultimaMachine: r.ultimaMachine,
+          planta: r.planta,
+          part: r.Part,
+          descrip: r.descrip,
+          long: r.long,
+          prio: r.prio,
+          piezasPend: r.piezasPend,
+          kgPend: r.kgPend,
+          comentario: v.comentario,
+          ok: !!v.ok
+        });
+      });
+    });
+  });
+function filterToggleAll(tableId,col){
+  const fc=document.querySelector(`.filter-content[data-table="${tableId}"][data-col="${col}"]`);
+  if(!fc) return;
+  const checks=[...fc.querySelectorAll('.filter-options input[type="checkbox"]')];
+  if(!checks.length) return;
+
+  let arr = registros.filter(x=>{
+    const obj = { planta:x.planta, ultimaMachine:x.ultimaMachine, clave:x.clave, Part:x.part, descrip:x.descrip, kgPend:x.kgPend, ultimaFechaRaw:x.fechaPend };
+    return filtrarOrdenar([obj]).length>0;
+  }).sort((a,b)=> new Date(b.fechaMarcado||b.fechaPend) - new Date(a.fechaMarcado||a.fechaPend));
+  const allChecked = checks.every(cb => cb.checked);
+  // Si todos están marcados => desmarcarlos todos; si no, marcarlos todos
+  checks.forEach(cb => cb.checked = !allChecked);
+
+  if(arr.length===0){
+    cont.innerHTML = "<div class='inv-info'>Sin registros en el historial.</div>";
+    return;
+  }
+  // 🔑 No llamamos a applyHeaderFilter aquí
+  // Solo actualizamos el estado visual de la caja
+}
+
+  const frag = document.createDocumentFragment();
+  arr.forEach(x=>{
+    const el=document.createElement("div");
+    el.className="inv-card";
+    const estado = x.comentario ? `💬 ${x.comentario}` : (x.ok ? "✅ OK" : "—");
+    el.innerHTML = `
+      <div class="inv-head">
+        <div class="m">${x.clave}</div>
+        <span class="badge">${x.planta||"-"}</span>
+      </div>
+      <div class="inv-meta">
+        <div><b>Fecha pendiente:</b> ${fFecha(x.fechaPend)}</div>
+        <div><b>Fecha revisado:</b> ${fFecha(x.fechaMarcado)}</div>
+        <div><b>Turno:</b> ${x.turno}</div>
+        <div><b>Máquina:</b> ${x.ultimaMachine||"-"}</div>
+        <div><b>Part:</b> ${x.part||"-"}</div>
+        <div><b>Prioridad:</b> ${x.prio||"-"}</div>
+        <div><b>Descripción:</b> ${x.descrip||"-"}</div>
+        <div><b>Long:</b> ${x.long||"-"}</div>
+        <div><b>Kg Pend (momento):</b> ${Math.round(x.kgPend||0)}</div>
+        <div><b>Estado:</b> ${estado}</div>
+      </div>
+    `;
+    el.addEventListener("click", ()=>{
+      abrirModal({
+        clave:x.clave, Part:x.part, descrip:x.descrip, prio:x.prio,
+        long:x.long, piezasPend:x.piezasPend, kgPend:x.kgPend,
+        ultimaMachine:x.ultimaMachine, planta:x.planta,
+        ultimaFechaRaw:x.fechaPend
+      }, "historial");
+    });
+    frag.appendChild(el);
+function filterApply(tableId,col){
+  applyHeaderFilter(tableId,col);
+  const fc=document.querySelector(`.filter-content[data-table="${tableId}"][data-col="${col}"]`);
+  if(fc) fc.parentElement.classList.remove('active'); // cerrar la caja al aplicar
+}
+
+
+
+/* ===========================
+   Búsqueda global
+   =========================== */
+function getVisibleTableId(){
+  if(!document.getElementById('porTemplarSection').classList.contains('hidden')) return 'tablaPendientes';
+  if(!document.getElementById('porEntregarSection').classList.contains('hidden')) return 'tablaPendientesTemper';
+  return null;
+}
+function applyGlobalSearch(q){
+  const tableId=getVisibleTableId(); 
+  if(!tableId) return;
+  const val=(q||'').toLowerCase();
+
+  const rows=document.querySelectorAll('#'+tableId+' tbody tr');
+  rows.forEach(r=>{
+    const text=r.textContent.toLowerCase();
+    const match=text.includes(val);
+    // flag de visibilidad (para combinar con filtros y paginación)
+    r.dataset.filteredOut = match ? '0' : '1';
+  });
+  cont.appendChild(frag);
+} 
+
+/* ===== Vista controlada SOLO para Pendientes ===== */
+let vistaTablaPendientes = false;
+  // refrescar filtros, paginación y totales
+  document.querySelectorAll(`#${tableId} thead .filter-content`).forEach(refreshFilterBox);
+  renderPaged(tableId);
+  if(tableId==='tablaPendientes') recalcTotalKg();
+}
+
+$("btnVistaToggle").onclick = () => {
+  if (vista !== "pendientes") { alert("🔹 Solo puedes usar la vista de tabla en Pendientes."); return; }
+  vistaTablaPendientes = !vistaTablaPendientes;
+  $("btnVistaToggle").textContent = vistaTablaPendientes ? "🃏 Vista Cards" : "📋 Vista Tabla";
+  actualizarVistaPendientes();
+};
+
+function actualizarVistaPendientes() {
+  // Ocultar todo
+  $("listPend").classList.add("hidden");
+  $("viewTabla").classList.add("hidden");
+  $("listRevis").classList.add("hidden");
+  $("listHist").classList.add("hidden");
+
+  if (vista === "pendientes") {
+    if (vistaTablaPendientes) {
+      $("viewTabla").classList.remove("hidden");
+      renderTablaAgrupada();
+    } else {
+      $("listPend").classList.remove("hidden");
+      renderPendientes();
+    }
+  } else if (vista === "revisados") {
+    $("listRevis").classList.remove("hidden");
+    renderRevisados();
+  } else {
+    $("listHist").classList.remove("hidden");
+    renderHistorial();
+/* ===========================
+   Exportar / Imprimir
+   =========================== */
+function exportTable(tableId){
+  const tbl=document.getElementById(tableId);
+  const headers=[...tbl.querySelectorAll('thead th')].map(th=> th.childNodes[0].nodeType===3 ? th.childNodes[0].textContent.trim() : th.childNodes[0].textContent.trim());
+  const data=[headers];
+  tbl.querySelectorAll('tbody tr').forEach(tr=>{
+    if(tr.style.display==='none') return;
+    data.push([...tr.querySelectorAll('td')].map(td=>td.textContent.trim()));
+  });
+  const wb=XLSX.utils.book_new(); const ws=XLSX.utils.aoa_to_sheet(data);
+  XLSX.utils.book_append_sheet(wb,ws,'Datos'); XLSX.writeFile(wb,(tableId||'datos')+'.xlsx');
+}
+function exportVisibleTable(){ const tableId=getVisibleTableId(); if(!tableId){ alert('No hay tabla visible para exportar.'); return; } exportTable(tableId); }
+function printSelector(sel){
+  // imprime solo el contenedor indicado
+  const el=document.querySelector(sel); if(!el){window.print(); return;}
+  el.classList.add('printable'); window.print(); el.classList.remove('printable');
+}
+function printVisible(){ const tableId=getVisibleTableId(); if(!tableId){ window.print(); return; } window.print(); }
+
+/* ===========================
+   Botones / Modales
+   =========================== */
+function updateNovedadesButton(btnId,count){
+  const btn=document.getElementById(btnId);
+  if(count>0){
+    btn.classList.remove('hidden');
+    let badge=btn.querySelector('.badge'); if(!badge){ badge=document.createElement('span'); badge.className='badge'; btn.appendChild(badge); }
+    badge.textContent=count;
+  }else{
+    btn.classList.add('hidden'); const b=btn.querySelector('.badge'); if(b) b.remove();
+  }
+  actualizarTotales();
+}
+function openModal(id){ document.getElementById(id).style.display='flex'; }
+function closeModal(id){ document.getElementById(id).style.display='none'; }
+
+/* ===========================
+   Cargas A (Extrusión) y B (Sorting)
+   =========================== */
+async function cargarA_Extrusion(){
+  setLoading(true,'Cargando....');
+  try{
+    await cargarLineas();
+    const fechaInicio="2025-01-01";
+    const fechaFin=new Date().toISOString().slice(0,10);
+
+    const [extrude,tmpin,mapaAleacionTemper]=await Promise.all([
+      consultarDepartamento(fechaInicio,fechaFin,"EXTRUDE"),
+      consultarDepartamento(fechaInicio,fechaFin,"TMP-IN"),
+      obtenerAleacionTemper()
+    ]);
+
+    // =====================================================
+//  MAPA EXTRUSIÓN — SOLO SE TOMAN FECHAS CON PZS > 0
+// =====================================================
+const extrudeMap = {};
+
+extrude.forEach(e => {
+  const clave = `${e.sonum}-${e.soitemnum}`;
+  const pc = Number(e.PcProd) || 0;
+  const kg = Number(e.KgProd) || 0;
+
+  if (!extrudeMap[clave]) {
+    extrudeMap[clave] = {
+      piezasExtrude: 0,
+      kgExtrude: 0,
+      ultimaFecha: null,
+      ultimaMachine: "-",
+      Part: e.Part || "-",
+      descrip: e.descrip || "-",
+      long: e.long || "-",
+      cliente: e.cliente || "-",
+      prio: e.prio || "-"
+    };
+  }
+
+$("tabPend").onclick = () => {
+  vista = "pendientes";
+  ["tabPend","tabRevis","tabHist"].forEach(id => $(id).classList.remove("active"));
+  $("tabPend").classList.add("active");
+  actualizarVistaPendientes();
+};
+$("tabRevis").onclick = () => {
+  vista = "revisados";
+  ["tabPend","tabRevis","tabHist"].forEach(id => $(id).classList.remove("active"));
+  $("tabRevis").classList.add("active");
+  actualizarVistaPendientes();
+};
+$("tabHist").onclick = () => {
+  vista = "historial";
+  ["tabPend","tabRevis","tabHist"].forEach(id => $(id).classList.remove("active"));
+  $("tabHist").classList.add("active");
+  actualizarVistaPendientes();
+};
+["fPlanta","fMaquina","fOrden"].forEach(id => $(id).addEventListener("change", actualizarVistaPendientes));
+$("fBuscar").addEventListener("input", actualizarVistaPendientes);
+  // Acumula solo piezas reales
+  extrudeMap[clave].piezasExtrude += pc;
+  extrudeMap[clave].kgExtrude += kg;
+
+// 🔹 Cambiar agrupación en tiempo real (sin salir de la vista)
+$("agrupacionTabla").addEventListener("change", () => {
+  if (vista === "pendientes" && vistaTablaPendientes) {
+    renderTablaAgrupada();
+  // 🔥 IMPORTANTE: la fecha válida es SOLO cuando tiene producción real
+  if (pc > 0 || kg > 0) {
+    if (!extrudeMap[clave].ultimaFecha || new Date(e.dt) > new Date(extrudeMap[clave].ultimaFecha)) {
+      extrudeMap[clave].ultimaFecha = e.dt;
+      extrudeMap[clave].ultimaMachine = (e.MachineName || "-").trim();
+    }
+  }
+});
+
+
+/* ===== Tabla Agrupada ===== */
+function renderTablaAgrupada() {
+  const { turno, fechaISO: fBase } = turnoDetallado();
+  const revisadosTurno = cacheRevisadosTurno[`${fBase}_${turno}`] || {};
+  const baseNoRevisados = basePendientes.filter(r => !revisadosTurno[r.clave]);
+  const arr = filtrarOrdenar(baseNoRevisados);
+
+  const agr = $('agrupacionTabla').value; // 'part' o 'desc'
+  const grupos = {};
+  arr.forEach(r => {
+    const key = agr === 'part' ? r.Part : r.descrip;
+    if (!grupos[key]) grupos[key] = [];
+    grupos[key].push(r);
+  });
+
+  const cont = $('tablaAgrupada');
+  cont.innerHTML = '';
+  Object.entries(grupos).forEach(([key, items]) => {
+    const groupDiv = document.createElement('div');
+    groupDiv.className = 'grupoTabla';
+
+    const titulo = document.createElement('h3');
+    titulo.textContent = key;
+    titulo.className = 'titulo-grupo';
+    groupDiv.appendChild(titulo);
+
+    const colExtra = agr === 'part' ? 'Descripción' : 'Part';
+    const table = document.createElement('div');
+    table.className = 'tabla-scroll';
+    table.innerHTML = `
+      <table class="tabla-grupo">
+        <thead>
+          <tr>
+            <th>SOITEM</th>
+            <th>Máquina</th>
+            <th>Pzs Pend</th>
+            <th>Kg Pend</th>
+            <th>Long</th>
+            <th>${colExtra}</th>
+            <th>Prioridad</th>
+            <th>Acciones</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    `;
+    const tbody = table.querySelector('tbody');
+
+    items.forEach(r => {
+      const tr = document.createElement('tr');
+      const extraValue = agr === 'part' ? r.descrip : r.Part;
+      tr.innerHTML = `
+        <td>${r.clave}</td>
+        <td>${r.ultimaMachine}</td>
+        <td>${r.piezasPend}</td>
+        <td>${Math.round(r.kgPend)}</td>
+        <td>${r.long}</td>
+        <td>${extraValue}</td>
+        <td>${r.prio}</td>
+        <td class="acciones-cell">
+          <button class="btn-mini ok" data-act="ok">✅</button>
+          <button class="btn-mini warn" data-act="coment">💬</button>
+        </td>
+      `;
+      const btnOk = tr.querySelector('[data-act="ok"]');
+      const btnCom = tr.querySelector('[data-act="coment"]');
+
+      btnOk.onclick = (ev) => {
+        const confirmar = confirm("¿Confirmar revisión OK?");
+        if (!confirmar) return;
+        ev.target.classList.add('confirmed');
+        guardarRevisado(r, { ok: true });
+      };
+      btnCom.onclick = () => { abrirModal(r, 'pendiente'); };
+      tbody.appendChild(tr);
+    });
+
+    groupDiv.appendChild(table);
+    cont.appendChild(groupDiv);
+  });
+}
+    // =====================================================
+    //  MAPA TMP-IN (incluye fecha dt para filtrar)
+    // =====================================================
+    const tmpMap={};
+tmpin.forEach(i=>{
+  const clave=`${i.sonum}-${i.soitemnum}`;
+  if(!tmpMap[clave]){
+    tmpMap[clave]={
+      piezas:0,
+      kg:0,
+      dt:i.dt||new Date(),
+      Part:i.Part||"-",
+      descrip:i.descrip||"-",
+      cliente:i.cliente||"-",
+      prio:i.prio||"-",
+      long:i.long||"-",
+      MachineName:i.MachineName||"-"
+    };
+  }
+  tmpMap[clave].piezas+=(Number(i.PcProd)||0);
+  tmpMap[clave].kg+=(Number(i.KgProd)||0);
+
+/* ===== Modal Detalle / Trazabilidad ===== */
+let modalData = null;
+function abrirModal(record, origen){
+  modalData = {record, origen};
+  $('mdTitulo').textContent = `SOITEM ${record.clave}`;
+  $('mdSoitem').textContent = record.clave;
+  $('mdPart').textContent   = record.Part || "-";
+  $('mdDesc').textContent   = record.descrip || "-";
+  $('mdPrio').textContent   = record.prio || "-";
+  $('mdLong').textContent   = record.long || "-";
+  $('mdPzs').textContent    = record.piezasPend ?? "-";
+  $('mdKg').textContent     = Math.round(record.kgPend||0);
+  $('mdMac').textContent    = record.ultimaMachine || "-";
+  $('mdPlanta').textContent = record.planta || "-";
+  $('mdFec').textContent    = fFecha(record.ultimaFechaRaw);
+  $('mdCmt').value          = "";
+  cargarTrazabilidad(record.clave).then(html=>{ $('mdTrace').innerHTML = html; });
+
+  $('btnOk').style.display        = (origen==="pendiente") ? "inline-block" : "none";
+  $('btnRegresar').style.display  = (origen==="revisado")  ? "inline-block" : "none";
+  $('modalInv').style.display = "flex";
+}
+function cerrarModal(){ $('modalInv').style.display = "none"; modalData=null; }
+$('btnCloseInv').onclick = cerrarModal;
+
+$('btnGuardarCmt').onclick = ()=>{
+  if(!modalData) return;
+  const cmt = ($('mdCmt').value||"").trim();
+  if(modalData.origen==="pendiente"){
+    if(!cmt) return;
+    guardarRevisado(modalData.record, {comentario:cmt, ok:false});
+  }else if(modalData.origen==="revisado"){
+    const {turno, fechaISO: fBase} = turnoDetallado();
+    const clave = modalData.record.clave;
+    dbInv.child("revisados").child(fBase).child(turno).child(clave)
+      .update({comentario: cmt? cmt : null});
+  // actualizar fecha si encuentra una más reciente
+  if(new Date(i.dt)>new Date(tmpMap[clave].dt)){
+    tmpMap[clave].dt=i.dt;
+  }
+  $('mdCmt').value="";
+};
+$('btnOk').onclick = ()=>{
+  if(!modalData) return;
+  const cmt = ($('mdCmt').value||"").trim() || null;
+  guardarRevisado(modalData.record, {comentario:cmt, ok:true});
+  cerrarModal();
+};
+$('btnRegresar').onclick = ()=>{
+  if(!modalData) return;
+  regresarAPendientes(modalData.record.clave);
+  cerrarModal();
+};
+});
+
+async function cargarTrazabilidad(clave){
+  const root = await dbInv.child("revisados").once("value");
+  const html = [];
+  root.forEach(diaSnap=>{
+    const fecha = diaSnap.key;
+    diaSnap.forEach(turnoSnap=>{
+      const node = turnoSnap.child(clave);
+      if(node.exists()){
+        const v = node.val();
+        html.push(`<div>📌 <b>${fecha}</b> · <b>${v.turno||"-"}</b> · ${fFecha(v.fechaOK)} · ${v.comentario?('💬 '+v.comentario):'✅ OK'}</div>`);
+    // =====================================================
+    //  COMPARACIÓN Y FILTRO
+    // =====================================================
+    const pendientes = [];
+    const novedades = [];
+    const limiteNovedades = new Date("2025-04-01"); // Solo mostrar desde abril 2025
+
+    // 🔹 Comparar claves existentes en Extrusión
+    Object.entries(extrudeMap).forEach(([clave, e]) => {
+      const piezasTmp = tmpMap[clave]?.piezas || 0;
+      const kgTmp = tmpMap[clave]?.kg || 0;
+      const piezasPend = e.piezasExtrude - piezasTmp;
+      const kgPend = e.kgExtrude - kgTmp;
+      const planta = getPlanta(e.ultimaMachine);
+      const linea = lineasMap[clave] || "-";
+      const fechaExtrude = new Date(e.ultimaFecha);
+
+      // Mostrar solo desde 2025-04-01
+      if (fechaExtrude < limiteNovedades) return;
+
+      if (piezasPend > 0) {
+        pendientes.push({
+          clave,
+          aleacion: ((mapaAleacionTemper[clave] || {}).aleacion) || "",
+          temper: ((mapaAleacionTemper[clave] || {}).temper) || "",
+          piezasPend,
+          kgPend,
+          ultimaMachine: e.ultimaMachine,
+          ultimaFecha: formatearFecha(e.ultimaFecha),
+          planta,
+          Part: e.Part,
+          linea,
+          descrip: e.descrip,
+          long: e.long,
+          cliente: e.cliente,
+          prio: e.prio
+        });
+      } 
+      // TMP-IN mayor a EXTRUSIÓN → Novedad
+      else if (piezasTmp > e.piezasExtrude && fechaExtrude >= limiteNovedades) {
+        novedades.push({
+          clave,
+          aleacion: ((mapaAleacionTemper[clave] || {}).aleacion) || "",
+          temper: ((mapaAleacionTemper[clave] || {}).temper) || "",
+          piezasTmp,
+          kgTmp,
+          piezasExtrude: e.piezasExtrude,
+          kgExtrude: e.kgExtrude,
+          diffPiezas: piezasTmp - e.piezasExtrude,
+          diffKg: kgTmp - e.kgExtrude,
+          ultimaMachine: e.ultimaMachine,
+          ultimaFecha: formatearFecha(e.ultimaFecha),
+          planta,
+          Part: e.Part,
+          linea,
+          descrip: e.descrip,
+          long: e.long,
+          cliente: e.cliente,
+          prio: e.prio
+        });
+      }
+    });
+  });
+  return html.length ? html.join("") : "(sin registros)";
+}
+
+/* ===== Guardar/editar ===== */
+function guardarRevisado(record,{comentario=null, ok=false}){
+  const {turno, fechaISO: fBase} = turnoDetallado();
+  const path = dbInv.child("revisados").child(fBase).child(turno).child(record.clave);
+  const payload = {
+    clave:record.clave, record, comentario: comentario || null, ok,
+    fechaOK: new Date().toISOString(), turno
+  };
+  path.set(payload).then(()=> actualizarVistaPendientes());
+}
+function editarComentario(clave){
+  const {turno, fechaISO: fBase} = turnoDetallado();
+  dbInv.child("revisados").child(fBase).child(turno).child(clave).once("value").then(snap=>{
+    const node = snap.val(); if(!node) return;
+    const nuevo = prompt("Editar comentario:", node.comentario || "");
+    if(nuevo===null) return;
+    dbInv.child("revisados").child(fBase).child(turno).child(clave)
+      .update({ comentario: (nuevo.trim()? nuevo.trim(): null) })
+      .then(()=> actualizarVistaPendientes());
+  });
+}
+function regresarAPendientes(clave){
+  const {turno, fechaISO: fBase} = turnoDetallado();
+  dbInv.child("revisados").child(fBase).child(turno).child(clave).remove()
+    .then(()=> actualizarVistaPendientes());
+}
+
+$('btnActualizarInv').onclick = async () => {
+  const b = $('btnActualizarInv');
+  const inicio = performance.now();
+
+  // ✅ Capturamos ubicación actual antes de verificar permisos
+  let lat = null, lon = null, distancia = null;
+  try {
+    const pos = await verificarUbicacion();
+    lat = pos.lat;
+    lon = pos.lon;
+    distancia = pos.distancia;
+  } catch (e) {
+    console.warn("No se pudo obtener ubicación:", e);
+
+   // 🔹 Detectar TMP-IN sin registro o con EXTRUSIÓN en 0
+for (const [clave, t] of Object.entries(tmpMap)) {
+  const e = extrudeMap[clave]; // buscar si existe extrusión
+  const fechaTmp = new Date(t.dt || new Date());
+  if (fechaTmp < limiteNovedades) continue; // solo desde abril 2025
+
+ // condición: solo si NO existe ningún registro de extrusión
+const sinExtrusion = !e;
+
+if (sinExtrusion) {
+    novedades.push({
+      clave,
+      aleacion: ((mapaAleacionTemper[clave] || {}).aleacion) || "",
+      temper: ((mapaAleacionTemper[clave] || {}).temper) || "",
+      piezasTmp: t.piezas || 0,
+      kgTmp: t.kg || 0,
+      piezasExtrude: e ? e.piezasExtrude : 0,
+      kgExtrude: e ? e.kgExtrude : 0,
+      diffPiezas: t.piezas - (e ? e.piezasExtrude : 0),
+      diffKg: t.kg - (e ? e.kgExtrude : 0),
+      ultimaMachine: e ? (e.ultimaMachine || "Sin Extrusión") : (t.MachineName || "Sin Extrusión"),
+      ultimaFecha: formatearFecha(e?.ultimaFecha || t.dt || new Date()),
+      planta: getPlanta(e?.ultimaMachine || t.MachineName || "-"),
+      Part: e?.Part || t.Part || "Sin Extrusión",
+      linea: lineasMap[clave] || "-",
+      descrip: e?.descrip || t.descrip || "Sin Extrusión",
+      long: e?.long || t.long || "Sin Extrusión",
+      cliente: e?.cliente || t.cliente || "Sin Extrusión",
+      prio: e?.prio || t.prio || "Sin Extrusión"
+    });
+  }
+}
+
+  // ✅ Verificamos permisos
+  const acceso = await verificarAccesoCompleto();
+  const finPermiso = performance.now();
+
+  if (!acceso) {
+    // 🔹 Log de intento fuera de zona o sin permisos (con ubicación)
+    await registrarActividad("Consulta API", "Sin autorización", inicio, finPermiso, lat, lon, distancia);
+    alert("🚫 No puedes actualizar datos fuera de la zona o sin autorización.");
+    return;
+  }
+
+  b.disabled = true;
+  const old = b.textContent;
+  b.textContent = "Cargando...";
+
+  try {
+    const iniFetch = performance.now();
+    await cargarPendientes();
+    const finFetch = performance.now();
+    // =====================================================
+    //  ACTUALIZAR TABLAS Y DASHBOARD
+    // =====================================================
+    datosPendientes=pendientes; 
+    datosNovedades=novedades; 
+    cacheAOk=true;
+
+    // 🔹 Log de éxito con duración y ubicación
+    await registrarActividad("Consulta API", "Éxito", iniFetch, finFetch, lat, lon, distancia);
+  } catch (e) {
+    await registrarActividad("Consulta API", "Error", inicio, performance.now(), lat, lon, distancia);
+    alert("Error: " + (e.message || e));
+  }
+    renderTablaA();
+    updateNovedadesButton('btnNovedadesExtrusion', datosNovedades.length);
+    if(datosNovedades.length) renderTablaNovedades(); else clearTable('tablaNovedades');
+
+  b.disabled = false;
+  b.textContent = old;
+};
+    if(currentView==='dashboard') renderDashboard();
+    setUltimaActualizacion();
+
+// 🔹 Llamada inicial sin restricción (al abrir la vista)
+cargarPendientes();
+  }catch(e){
+    alert('Error cargando Extrusión: '+(e.message||e));
+  }finally{
+    setLoading(false);
+  }
+}
+
+/* ==================== Drawer / navegación ==================== */
+const drawer = document.getElementById("drawer");
+const mask   = document.getElementById("drawerMask");
+document.getElementById("btnMenu").addEventListener("click",()=>{
+  drawer.classList.add("open"); mask.style.display="block";
+});
+document.getElementById("btnCloseDrawer").addEventListener("click",closeDrawer);
+document.getElementById("drawerMask").addEventListener("click",closeDrawer);
+function closeDrawer(){ drawer.classList.remove("open"); mask.style.display="none"; }
+
+document.querySelectorAll(".drawer .opt").forEach(opt=>{
+  opt.addEventListener("click",()=>{
+    const target = opt.dataset.target;
+
+    // 🔹 Cierra el menú lateral siempre al hacer clic
+    closeDrawer();
+async function cargarB_Sorting(){
+  setLoading(true,'Cargando...');
+  try{
+    const fi=document.getElementById('fechaInicial')?.value || '2025-01-01';
+    const ff=document.getElementById('fechaFinal')?.value || new Date().toISOString().slice(0,10);
+
+    const [tmpinData,temperData]=await Promise.all([
+      consultarDepartamento(fi,ff,"TMP-IN"),
+      consultarDepartamento(fi,ff,"TEMPER")
+    ]);
+
+    const temperMap={};
+    for(const t of temperData){
+      const clave=`${t.sonum}-${t.soitemnum}`;
+      const prod=Number(t.PcProd)||0; const scr=Number(t.PcScr)||0;
+      temperMap[clave]=(temperMap[clave]||0)+prod+scr;
+    }
+
+    // Oculta todas las vistas principales
+    ["view-temperaturas","view-inventario","view-planos"].forEach(id=>{
+      $(id).classList.add("hidden");
+    });
+    $("viewTabla").classList.add("hidden"); // la tabla es una subvista del inventario
+
+    if(target==="temperaturas"){
+      $("view-temperaturas").classList.remove("hidden");
+      $("topTitle").textContent = "Registro de Temperaturas";
+    } 
+    else if(target==="inventario"){
+      $("view-inventario").classList.remove("hidden");
+      $("topTitle").textContent = "Inventario Por Templar";
+
+      // 🔹 Si estaba en modo tabla pendientes, la reactivamos
+      if(vista === "pendientes" && vistaTablaPendientes){
+        $("viewTabla").classList.remove("hidden");
+        renderTablaAgrupada();
+      } else {
+        actualizarVistaPendientes();
+    const tmpinMap={};
+    const ahora=ahoraColombia();
+    for(const t of tmpinData){
+      const clave=`${t.sonum}-${t.soitemnum}`;
+      const piezas=Number(t.PcProd)||0;
+      const dt3=calcularDt3(t.dt,t.dt2,t.shift);
+      const horasTrans=(ahora - dt3)/(1000*60*60);
+
+      if(!tmpinMap[clave]){
+        tmpinMap[clave]={ tmpin:0, Machine:t.MachineName?.trim()||"-", Part:t.Part||"-", Cliente:(t.cliente||"-").toString().trim(),
+          Descripcion:t.descrip||"-", Turno:(t.shift??"").toString(), dt3Raw:dt3, HorasTrans:horasTrans };
+      }
+      tmpinMap[clave].tmpin+=piezas;
+
+      if(dt3>tmpinMap[clave].dt3Raw){
+        tmpinMap[clave].Machine=t.MachineName?.trim()||"-";
+        tmpinMap[clave].Part=t.Part||"-";
+        tmpinMap[clave].Cliente=(t.cliente||"-").toString().trim();
+        tmpinMap[clave].Descripcion=t.descrip||"-";
+        tmpinMap[clave].Turno=(t.shift??"").toString();
+        tmpinMap[clave].dt3Raw=dt3;
+        tmpinMap[clave].HorasTrans=(ahora - dt3)/(1000*60*60);
+      }
+    }
+
+      actualizarTotales();
+    } 
+    else if(target==="planos"){
+      $("view-planos").classList.remove("hidden");
+      $("topTitle").textContent = "Consulta de Planos";
+      prepararVistaPlanos();
+    const fechaMinMostrar=new Date("2025-04-10T00:00:00");
+    mayoresTMP=[]; mayoresTemper=[];
+    for(const clave in tmpinMap){
+      const totalTMP=tmpinMap[clave].tmpin||0;
+      const totalTemper=temperMap[clave]||0;
+      const pendiente=totalTMP-totalTemper;
+      if(tmpinMap[clave].dt3Raw<fechaMinMostrar) continue;
+      if(tmpinMap[clave].HorasTrans<15) continue;
+
+      if(pendiente>0){
+        mayoresTMP.push({ soitem:clave, tmpin:totalTMP, temper:totalTemper, pendiente,
+          ...tmpinMap[clave], FechaDT3:formatearFechaLocalColombia(tmpinMap[clave].dt3Raw),
+          HorasTrans:(tmpinMap[clave].HorasTrans).toFixed(1) });
+      }else if(pendiente<0){
+        mayoresTemper.push({ soitem:clave, tmpin:totalTMP, temper:totalTemper, diferencia:Math.abs(pendiente),
+          ...tmpinMap[clave], FechaDT3:formatearFechaLocalColombia(tmpinMap[clave].dt3Raw),
+          HorasTrans:(tmpinMap[clave].HorasTrans).toFixed(1) });
+      }
+    }
+  });
+ 
+// 🔥 eliminar comentarios para soitems que ya no tienen diferencia
+Object.keys(obsSortingMap).forEach(soitem => {
+  const siguePendiente = mayoresTMP.some(x => x.soitem === soitem);
+  if (!siguePendiente) {
+    db.ref("sortingObservaciones/" + soitem).remove();
+  }
+});
+
+    cacheBOk=true;
+
+/* ==================== Consulta de Planos ==================== */
+let planosData = [];
+let filtrados = [];
+let indexRender = 0;
+const PAGE_SIZE = 200;
+const PLANOS_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTlsUCkIwRggf4CcUkfq239hl5UKRE86B3FycdB14sgIs5OIeFuqKQjlhzezzNNWJa6WEPy_URJtDB_/pub?gid=1893719309&single=true&output=csv";
+const CACHE_KEY = "planosCacheCSV";
+
+function parseCSV(csv) {
+  const rows = csv.trim().split("\n").map(r => r.split(","));
+  const headers = rows[0].map(h => h.trim());
+  return rows.slice(1).map(r => {
+    const o = {};
+    headers.forEach((h, i) => o[h] = (r[i] || "").trim());
+    return o;
+  });
+    // Render tabla B
+    renderTablaB();
+
+    // Novedades sorting
+    updateNovedadesButton('btnNovedadesSorting', mayoresTemper.length);
+    if(mayoresTemper.length) renderTablaTemperMayor(); else clearTable('tablaTemperMayor');
+
+    // Actualiza dashboard si estás ahí
+    if(currentView==='dashboard') renderDashboard();
+
+// ⬅️ NUEVO
+    setUltimaActualizacion();
+
+  }catch(e){
+    alert('Error cargando Sorting: '+(e.message||e));
+  }finally{
+    setLoading(false);
+  }
+}
+
+async function cargarPlanos() {
+  const cuerpo = $("tbodyPlanos");
+  cuerpo.innerHTML = "<tr><td colspan='2' style='padding:10px;'>Cargando planos...</td></tr>";
+/* ===========================
+   Botón Actualizar
+   =========================== */
+function handleActualizar(){
+  if(currentView==='dashboard'){
+    const tasks=[];
+
+  const cache = localStorage.getItem(CACHE_KEY);
+  if (cache) planosData = parseCSV(cache);
+    if(!cacheAOk) tasks.push(cargarA_Extrusion());
+    if(!cacheBOk) tasks.push(cargarB_Sorting());
+    if(!tasks.length) renderDashboard();
+  }
+  else if(currentView==='por-templar'){
+    cargarA_Extrusion();
+  }
+  else if(currentView==='por-entregar'){
+    cargarB_Sorting();
+  }
+  else if(currentView==='planilla-envejecimiento'){
+    generarPlanilla();
+  }
+  else if(currentView==='en-temple'){
+    generarResumenEnTemple(); // ✅ aquí llamas tu nuevo resumen
+  }
+}
+
+  try {
+    const resp = await fetch(PLANOS_URL);
+    const csv = await resp.text();
+    if (csv.length > 100) {
+      localStorage.setItem(CACHE_KEY, csv);
+      planosData = parseCSV(csv);
+    }
+  } catch (err) {
+    console.warn("Sin conexión, usando cache local.");
+/* ===========================
+   Exportar Planilla
+   =========================== */
+function exportarPlanillaExcel(){
+  let tabla = document.getElementById("planillaContainer");
+  if(!tabla){
+    alert("⚠ No hay planilla para exportar");
+    return;
+  }
+  renderPlanos(); 
+}
+
+function renderPlanos(reset = true) {
+  const cuerpo = $("tbodyPlanos");
+  if (reset) {
+    const q = ($("buscarPlano").value || "").toLowerCase();
+    filtrados = planosData.filter(p =>
+      !q || ((p.NOMBRE||p.Nombre||"").toLowerCase().includes(q))
+    );
+    indexRender = 0;
+    cuerpo.innerHTML = "";
+  let wb = XLSX.utils.table_to_book(tabla.querySelector("table"), {sheet:"Planilla"});
+  XLSX.writeFile(wb, `planilla_envejecimiento.xlsx`);
+}
+
+function exportarPlanillaPDF(){
+  const tabla = document.getElementById("planillaContainer");
+  if(!tabla){
+    alert("⚠ No hay planilla para exportar");
+    return;
+  }
+  const { jsPDF } = window.jspdf;
+  html2canvas(tabla).then(canvas=>{
+    const imgData = canvas.toDataURL("image/png");
+    const pdf = new jsPDF('l','pt','legal'); // horizontal oficio
+    const imgProps = pdf.getImageProperties(imgData);
+    const pdfWidth = pdf.internal.pageSize.getWidth();
+    const pdfHeight = (imgProps.height * pdfWidth) / imgProps.width;
+    pdf.addImage(imgData, 'PNG', 10, 10, pdfWidth-20, pdfHeight-20);
+    pdf.save("planilla_envejecimiento.pdf");
+  });
+}
+
+  const next = filtrados.slice(indexRender, indexRender + PAGE_SIZE);
+  const frag = document.createDocumentFragment();
+
+  next.forEach(p => {
+    const nombre = p.NOMBRE || p.Nombre || "Sin nombre";
+    const link = p.LINK || p.Link || p.ARCHIVO || "#";
+    const fila = document.createElement("tr");
+    fila.innerHTML = `
+      <td style="padding:6px 10px;border-bottom:1px solid #333;">${nombre}</td>
+      <td style="padding:6px 10px;border-bottom:1px solid #333;">
+        <button class="inv-btn primary" data-link="${encodeURIComponent(link)}" data-nombre="${encodeURIComponent(nombre)}">Ver</button>
+      </td>
+    `;
+    fila.querySelector("button").onclick = (ev)=>{
+      const url = decodeURIComponent(ev.currentTarget.dataset.link);
+      const nom = decodeURIComponent(ev.currentTarget.dataset.nombre);
+      abrirVisorPlanos(nom, url);
+
+/* ===========================
+   Export visible
+   =========================== */
+function exportVisibleTable(){
+  const tableId=getVisibleTableId();
+  if(!tableId){ alert('No hay tabla visible para exportar.'); return; }
+  exportTable(tableId);
+}
+
+/* ===========================
+   Ordenamiento de columnas
+   =========================== */
+function attachSortHandlers(tableId){
+  const table = document.getElementById(tableId);
+  if(!table) return;
+
+  const headers = table.querySelectorAll("th.sortable");
+  headers.forEach((th, index) => {
+    th.onclick = () => {
+      const isAsc = !th.classList.contains("asc");
+      headers.forEach(h => h.classList.remove("asc","desc"));
+      th.classList.add(isAsc ? "asc" : "desc");
+
+      const rows = Array.from(table.querySelector("tbody").rows);
+      rows.sort((a, b) => {
+        const valA = a.cells[index]?.innerText.trim() || "";
+        const valB = b.cells[index]?.innerText.trim() || "";
+
+        if(!isNaN(valA) && !isNaN(valB)){
+          return isAsc ? valA - valB : valB - valA;
+        }
+        return isAsc
+          ? valA.localeCompare(valB, "es", {numeric:true})
+          : valB.localeCompare(valA, "es", {numeric:true});
+      });
+
+      rows.forEach(r => table.querySelector("tbody").appendChild(r));
+    };
+    frag.appendChild(fila);
+  });
+}
+
+  cuerpo.appendChild(frag);
+  indexRender += PAGE_SIZE;
+// Suponiendo que ya estás en tu archivo `index.html` de tu ERP con el menú de Reportes → En Temple creado
+// y que la función `generarResumenEnTemple()` ya existe y agrupa por horno y descripción correctamente,
+// aquí está la versión actualizada que renderiza las tarjetas tipo "cards" (estilo 'Dentro de Hornos').
+
+function convertirHoraAMPMa24(horaAMPM) {
+  if (!horaAMPM) return "00:00";
+  const [time, modifier] = horaAMPM.trim().split(' ');
+  let [hours, minutes] = time.split(':');
+  if (modifier === 'PM' && hours !== '12') hours = String(parseInt(hours, 10) + 12);
+  if (modifier === 'AM' && hours === '12') hours = '00';
+  return `${hours.padStart(2, '0')}:${minutes}`;
+}
+
+$("tablaPlanos").parentElement.onscroll = e => {
+  const el = e.target;
+  if (el.scrollTop + el.clientHeight >= el.scrollHeight - 30 && indexRender < filtrados.length) {
+    renderPlanos(false);
+  }
+};
+$("buscarPlano").oninput = () => renderPlanos(true);
+$("btnRecargarPlanos").onclick = cargarPlanos;
+
+/* ===== Gmail Auth + Permisos Planos ===== */
+let usuarioPlanos = null;
+let accesoPlanos = false;
+
+$("btnLoginGoogle").onclick = async ()=>{
+  try{
+    const provider = new firebase.auth.GoogleAuthProvider();
+    const res = await auth.signInWithPopup(provider);
+    usuarioPlanos = res.user;
+    $("lblPlanosUsuario").textContent = usuarioPlanos.email;
+    $("btnLoginGoogle").style.display="none";
+    $("btnLogoutGoogle").style.display="inline-block";
+    await verificarAccesoCompleto();
+  }catch(e){ alert("No se pudo iniciar sesión: "+ (e.message||e)); }
+};
+$("btnLogoutGoogle").onclick = async ()=>{
+  await auth.signOut();
+  usuarioPlanos = null; accesoPlanos=false;
+  $("lblPlanosUsuario").textContent = "No autenticado";
+  $("btnLoginGoogle").style.display="inline-block";
+  $("btnLogoutGoogle").style.display="none";
+  $("tbodyPlanos").innerHTML="";
+  $("msgPlanos").textContent="Inicia sesión con Google para ver los planos.";
+};
+
+auth.onAuthStateChanged(async (user)=>{
+  if(user){
+    usuarioPlanos = user;
+    $("lblPlanosUsuario").textContent = user.email;
+    $("btnLoginGoogle").style.display="none";
+    $("btnLogoutGoogle").style.display="inline-block";
+    await verificarAccesoCompleto()
+  }else{
+    usuarioPlanos = null; accesoPlanos=false;
+    $("lblPlanosUsuario").textContent = "No autenticado";
+    $("btnLoginGoogle").style.display="inline-block";
+    $("btnLogoutGoogle").style.display="none";
+    $("tbodyPlanos").innerHTML="";
+    $("msgPlanos").textContent="Inicia sesión con Google para ver los planos.";
+function generarResumenEnTemple() {
+  const fecha = document.getElementById("fechaEnTemple").value;
+  const turno = document.getElementById("turnoEnTemple").value;
+
+document.getElementById("loadingEnTemple").style.display = "block";
+document.getElementById("tablaEnTempleContainer").innerHTML = "";
+
+
+  if (!fecha || !turno) {
+    alert("Selecciona fecha y turno");
+    return;
+  }
+});
+
+// 📍 Zona base Tecnoglass (fallback si no tiene rango personalizado)
+const ZONA_AUTORIZADA = {
+  lat: 11.036216,
+  lon: -74.82697,
+  radio_metros: 1500
+};
+  fetch("https://optima.tecnoglass.net/api/alutions_production/reporte-extruccion", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      Fecha_inicial: fecha,
+      Fecha_final: fecha,
+      departamento: 3,
+      turno: turno
+    })
+  })
+    .then(response => response.json())
+    .then(result => {
+      const bloques = result?.data || [];
+      const datosTMPIN = bloques.find(b => Array.isArray(b?.TMPIN))?.TMPIN || [];
+      const datosFiltrados = datosTMPIN.filter(item => item.shift?.toString() === turno);
+
+      if (datosFiltrados.length === 0) {
+        document.getElementById("tablaEnTempleContainer").innerHTML =
+          "<i>No hay registros TMPIN para esa fecha y turno</i>";
+        return;
+      }
+
+/* ==================== GEOLOCALIZACIÓN ==================== */
+// 📍 Calcula la distancia en metros entre dos coordenadas (Haversine)
+function distanciaMetros(lat1, lon1, lat2, lon2) {
+  const R = 6371000; // radio de la Tierra en metros
+  const toRad = deg => deg * Math.PI / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+  const a = Math.sin(dLat/2)**2 + Math.cos(toRad(lat1))*Math.cos(toRad(lat2))*Math.sin(dLon/2)**2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+// 📍 Verifica la ubicación actual del usuario
+async function verificarUbicacion() {
+  return new Promise((resolve, reject) => {
+    if (!navigator.geolocation) {
+      return reject("Tu navegador no soporta geolocalización.");
+    }
+      const agrupado = {};
+
+    navigator.geolocation.getCurrentPosition(
+      pos => {
+        const lat = pos.coords.latitude;
+        const lon = pos.coords.longitude;
+        const distancia = distanciaMetros(lat, lon, ZONA_AUTORIZADA.lat, ZONA_AUTORIZADA.lon);
+        resolve({ lat, lon, distancia });
+      },
+      err => {
+        switch (err.code) {
+          case 1: reject("Permiso de ubicación denegado."); break;
+          case 2: reject("Posición no disponible."); break;
+          case 3: reject("Tiempo de espera agotado."); break;
+          default: reject("Error desconocido."); break;
+        }
+      },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+    );
+  });
+}
+      // ========================
+      // AGRUPAR POR HORNO
+      // ========================
+      datosFiltrados.forEach(item => {
+        const horno = normalizarItaliano(item.MachineName);
+
+
+async function verificarAccesoCompleto() {
+  if (!usuarioPlanos) {
+    $("msgPlanos").textContent = "Inicia sesión con Google para ver los planos.";
+    accesoPlanos = false;
+    return false;
+  }
+        const desc = item.descrip?.trim() || "Sin descripción";
+        const kg = parseFloat(item.kg || 0);
+
+  const correo = usuarioPlanos.email.trim().toLowerCase();
+  const clave = correo.replace(/\./g, ',');
+        // Hora base tomada del DT (por si no existe Firebase)
+        let horaBase = new Date(item.dt).toISOString().substr(11,5); 
+let hora = convertirAMPM(horaBase);
+
+  try {
+    const snap = await firebase.database().ref("permisos/" + clave).once("value");
+    const info = snap.val();
+
+console.log("🔎 Verificando acceso para:", correo);
+console.log("📦 Datos desde Firebase:", info);
+        // Si Firebase tiene horaFin → reemplazarla
+        const horaFirebase = ciclosActivosMap[horno]?.horaFin;
+if (horaFirebase) hora = convertirAMPM(horaFirebase);
+
+
+    if (!info || info.activo !== true) {
+      $("msgPlanos").textContent = "🚫 No tienes permisos para acceder.";
+      accesoPlanos = false;
+      return false;
+    }
+        if (!agrupado[horno]) agrupado[horno] = { productos: {}, hora };
+
+    // 🔹 Sin restricción de distancia
+    if (info.sinDistancia === true) {
+      $("msgPlanos").textContent = "";
+      accesoPlanos = true;
+      return true;
+    }
+        if (!agrupado[horno].productos[desc]) {
+          agrupado[horno].productos[desc] = 0;
+        }
+
+        agrupado[horno].productos[desc] += kg;
+      });
+
+    // 🔹 Determinar rango permitido (personalizado o global)
+    const rangoUsuario = Number(info.radio_metros || info.rango || ZONA_AUTORIZADA.radio_metros);
+      // ========================
+      // CALCULAR TOTAL GENERAL
+      // ========================
+      const totalGeneral = Object.values(agrupado).reduce((sum, horno) => {
+        return (
+          sum +
+          Object.values(horno.productos).reduce((s, kg) => s + kg, 0)
+        );
+      }, 0);
+
+      // ========================
+      // TÍTULO PRINCIPAL
+      // ========================
+      const tituloFinal = `
+  <div class="titulo-en-temple">
+      <span class="titulo-texto">
+        🔥 Dentro de Hornos ${fecha} - Turno ${turno}
+        <span class="separador"></span>
+        Total General: <b>${totalGeneral.toFixed(0)} Kg</b>
+      </span>
+  </div>
+`;
+
+    // 🔹 Obtener distancia actual
+    const { distancia } = await verificarUbicacion();
+
+console.log(`📍 Distancia: ${distancia}m | Límite: ${rangoUsuario}m`);
+
+      document.getElementById("tituloEnTemple").innerHTML = tituloFinal;
+
+    if (distancia > rangoUsuario) {
+      $("msgPlanos").textContent =
+        `📍 Estás fuera del área permitida (${Math.round(distancia)}m de distancia, límite ${rangoUsuario}m).`;
+      accesoPlanos = false;
+      return false;
+    }
+      // ========================
+      // ARMAR TARJETAS
+      // ========================
+      let html = `<div class="dashboard-grid">`;
+
+    $("msgPlanos").textContent = "";
+    accesoPlanos = true;
+    return true;
+      Object.entries(agrupado).forEach(([horno, data]) => {
+        let subtotal = 0;
+        let productosHTML = "";
+
+  } catch (err) {
+    console.error("Error verificando permisos:", err);
+    $("msgPlanos").textContent = "⚠️ Error al verificar permisos o ubicación.";
+    accesoPlanos = false;
+    return false;
+  }
+}
+/* ===== Visor modal (PDF directo sin descarga ni impresión) ===== */
+const visorModal = $("visorPlanosModal");
+const visorIframe = $("visorIframe");
+const visorTitulo = $("visorTitulo");
+$("btnCerrarVisor").onclick = ()=> cerrarVisor();
+        Object.entries(data.productos).forEach(([desc, kg]) => {
+          subtotal += kg;
+          productosHTML += `
+            <div class="linea-gris">
+              <b>${desc}</b>: ${kg.toFixed(0)} Kg
+            </div>`;
+        });
+
+        html += `
+          <div class="card-horno">
+            <h3>🔥 ${horno}</h3>
+            <label><b>Hora:</b> 
+              <input type="text"
+                     class="hora-ampm-input"
+                     value="${data.hora}"
+                     
+            </label>
+            <br>
+            ${productosHTML}
+            <div class="total"><b>Total:</b> ${subtotal.toFixed(0)} Kg</div>
+            <div class="barra-total"><span style="width:100%"></span></div>
+          </div>`;
+      });
+
+/* ===== Ocultar otras vistas al abrir visor de planos ===== */
+function ocultarVistasActivas(){
+  // Oculta la tabla de pendientes si está visible
+  const vistaPendientes = document.getElementById("tablaPendientesTemper");
+  if(vistaPendientes) vistaPendientes.style.display = "none";
+      html += `</div>`;
+
+  // Oculta cualquier overlay o sección de reportes activa
+  const modales = document.querySelectorAll(".modal, .overlay, .panel-activo");
+  modales.forEach(m => m.style.display = "none");
+      // ========================
+      // BOTONES 
+      // ========================
+      html += `
+        <div style="text-align:center;margin-top:12px;">
+          <button onclick="descargarImagenEnTemple()" class="btn btn-accent">📸 Descargar</button>
+          <button onclick="compartirWhatsAppEnTemple()" class="btn">📲 Compartir WhatsApp</button>
+          <button onclick="compartirCorreoEnTemple()" class="btn">✉️ Compartir Correo</button>
+        </div>`;
+
+  // Si tienes secciones con clase .seccion o .vista (como tabs)
+  const vistas = document.querySelectorAll(".vista, .seccion-activa");
+  vistas.forEach(v => v.style.display = "none");
+      document.getElementById("tablaEnTempleContainer").innerHTML = html;
+      document.getElementById("loadingEnTemple").style.display = "none";
+
+    });
+}
+let imgEnTemple = "";
+
+async function descargarImagenEnTemple() {
+  const filtros = document.querySelector(".barra-filtros");
+  const botones = document.querySelectorAll(".btn, button");
+  const contenedor = document.querySelector("#enTempleSection .printable");
+
+function abrirVisorPlanos(nombre, url){
+  if(!accesoPlanos){ 
+    alert("🚫 Sin permiso para ver planos."); 
+    return; 
+  }
+  
+   ocultarVistasActivas(); // 🔹 Cierra cualquier vista previa o tabla abierta
+  visorTitulo.textContent = nombre;
+  // Ocultar filtros/botones
+  if (filtros) filtros.style.display = "none";
+  botones.forEach(btn => btn.style.display = "none");
+
+  const originalOverflow = document.body.style.overflow;
+  document.body.style.overflow = "visible";
+
+  await new Promise(resolve => setTimeout(resolve, 100));
+
+  const canvas = await html2canvas(contenedor, {
+    backgroundColor: "#fff",
+    scale: 2,
+    useCORS: true
+  });
+
+  // 🔹 Si el enlace proviene de Google Drive, lo convertimos a formato de visualización directa
+  if (url.includes("drive.google.com/file/d/")) {
+    // Elimina cualquier parámetro o sufijo y lo cambia a /preview
+    url = url.replace(/\/view(\?.*)?$/, "/preview");
+  // Restaurar
+  if (filtros) filtros.style.display = "";
+  botones.forEach(btn => btn.style.display = "");
+  document.body.style.overflow = originalOverflow;
+
+  // Descargar imagen
+  const link = document.createElement("a");
+  link.download = "reporte_en_temple.png";
+  link.href = canvas.toDataURL("image/png");
+  link.click();
+
+  // Copiar al portapapeles
+  if (navigator.clipboard && window.ClipboardItem) {
+    canvas.toBlob(async (blob) => {
+      try {
+        await navigator.clipboard.write([
+          new ClipboardItem({ "image/png": blob })
+        ]);
+        alert("✅ Imagen copiada.\nAhora puedes pegarla con Ctrl+V en el correo.");
+      } catch (err) {
+        console.error("Error copiando al portapapeles", err);
+      }
+    });
+  }
+}
+
+function compartirCorreoEnTemple() {
+  const fecha = document.getElementById("fechaEnTemple").value;
+  const turno = document.getElementById("turnoEnTemple").value;
+
+  // 🔹 Mostramos el PDF directamente (sin PDF.js)
+  visorIframe.src = url;
+  visorIframe.setAttribute("sandbox", "allow-same-origin allow-scripts");
+  visorIframe.setAttribute("allow", "fullscreen");
+  visorIframe.setAttribute("style", "width:100%;height:100vh;border:none;");
+
+(async ()=>{
+  const inicio = performance.now();
+  try {
+    const { lat, lon, distancia } = await verificarUbicacion().catch(()=>({}));
+    const fin = performance.now();
+    await registrarActividad("Consulta Planos", "Éxito", inicio, fin, lat, lon, distancia);
+  } catch (e) {
+    console.warn("Error registrando actividad de plano:", e);
+  if (!fecha || !turno) {
+    alert("Selecciona primero la fecha y el turno del reporte");
+    return;
+  }
+})();
+
+  const asunto = `Reporte Dentro de Hornos - ${fecha} - Turno ${turno}`;
+  const destinatarios = [
+    "juan.marino@tecnoglass.com",
+    "gilenis.torres@tecnoglass.com",
+    "carolina.salazar@tecnoglass.com",
+    "gary.maldonado@tecnoglass.com",
+    "miguel.redondo@tecnoglass.com",
+    "ricardo.polo@tecnoglass.com",
+    "yajaira.martelo@tecnoglass.com",
+    "angie.garizabalo@tecnoglass.com",
+    "hojer.garcia@tecnoglass.com",
+    "miryan.farfan@tecnoglass.com",
+    "alexis.ortiz@tecnoglass.com",
+    "karen.gonzalez@tecnoglass.com",
+    "auditores.calidad@tecnoglass.com",
+    "paola.sanchez@tecnoglass.com",
+    "ceidy.hernandez@tecnoglass.com",
+    "zully.lopez@tecnoglass.com",
+    "dorlys.escalante@tecnoglass.com",
+    "digitadores.pintura@tecnoglass.com",
+    "practicante.calidad@tecnoglass.com",
+    "geidys.polo@tecnoglass.com",
+    "vannesa.canas@tecnoglass.com",
+    "analista.inventario@tecnoglass.com",
+    "supervisores.inventario@tecnoglass.com",
+    "edwin.cardenas@tecnoglass.com",
+    "giuseppe.riveira@tecnoglass.com",
+    "jhon.caraballo@tecnoglass.com",
+    "yaritza.escobar@tecnoglass.com",
+    "solucionesnc.alutions@tecnoglass.com",
+    "millfinish@tecnoglass.com",
+    "katherine.navarro@tecnoglass.com",
+    "jose.roa@tecnoglass.com",
+    "kevin.otalvarez@tecnoglass.com",
+    "pintura.horizontal1@energiasolarsa.com",
+    "insulbar@tecnoglass.com",
+    "luis.ariza@tecnoglass.com",
+    "danilo.delaiglesia@tecnoglass.com",
+    "maria.ramirez@tecnoglass.com",
+    "orlando.mancilla@tecnoglass.com",
+    "mario.herrera@tecnoglass.com",
+    "analista.ppolvo@tecnoglass.com",
+    "vivian.ariza@tecnoglass.com",
+    "felix.torresilla@tecnoglass.com",
+    "laura.cajar@tecnoglass.com",
+    "richard.morales@tecnoglass.com",
+    "jhoony.rodriguez@tecnoglass.com",
+    "sergio.ruizc@tecnoglass.com",
+	"angye.merino@tecnoglass.com"  
+  ];
+
+  const to = destinatarios.join(";");
+
+  const body = `
+  Hola,%0D%0A%0D%0A
+  Adjunto el reporte Dentro de Hornos correspondiente a la fecha ${fecha} - Turno ${turno}.%0D%0A%0D%0A
+  Saludos.`;
+
+  // Este método abre Outlook con campos precargados (requiere que el archivo esté ya descargado manualmente)
+  const mailtoLink = `mailto:${to}?subject=${encodeURIComponent(asunto)}&body=${body}`;
+
+  // Abrir el Outlook de escritorio
+  window.location.href = mailtoLink;
+}
+
+function compartirWhatsAppEnTemple() {
+  const fecha = document.getElementById("fechaEnTemple").value;
+  const turno = document.getElementById("turnoEnTemple").value;
+
+  // 🔹 Bloquear atajos de teclado (Ctrl+S / Ctrl+P / Ctrl+C / Ctrl+U)
+  window.addEventListener("keydown", keyBlocker, {capture:true});
+  const texto = `🔥 Resumen En Temple\n📅 Fecha: ${fecha}\n🕐 Turno: ${turno}\n\n`;
+
+  // 🔹 Bloquear menú contextual (clic derecho)
+  visorIframe.addEventListener("contextmenu", e => e.preventDefault());
+  visorModal.addEventListener("contextmenu", e => e.preventDefault());
+  // Si es celular
+  const esCelular = /Android|iPhone/i.test(navigator.userAgent);
+  const url = esCelular
+    ? `whatsapp://send?text=${encodeURIComponent(texto)}`
+    : `https://web.whatsapp.com/send?text=${encodeURIComponent(texto)}`;
+
+  visorModal.style.display = "flex";
+  window.open(url, "_blank");
+}
+
+function keyBlocker(e){
+  const ctrl = e.ctrlKey || e.metaKey;
+  if(ctrl && ["s","p","c","x","u"].includes(e.key.toLowerCase())){ 
+    e.preventDefault(); 
+    e.stopPropagation(); 
+let ultimaFilaSeleccionada = null;
+
+document.addEventListener("click", function (e) {
+  const fila = e.target.closest("tr");
+  if (!fila || fila.parentElement.tagName !== "TBODY") return;
+
+  const filas = Array.from(fila.parentElement.children);
+
+  // Shift → selecciona rango
+  if (e.shiftKey && ultimaFilaSeleccionada) {
+    const start = filas.indexOf(ultimaFilaSeleccionada);
+    const end = filas.indexOf(fila);
+    const [min, max] = [Math.min(start, end), Math.max(start, end)];
+    for (let i = min; i <= max; i++) {
+      filas[i].classList.add("destacado");
+    }
+  }
+}
+  // Ctrl o clic normal → alterna una fila sin borrar otras
+  else {
+    fila.classList.toggle("destacado");
+  }
+
+  ultimaFilaSeleccionada = fila;
+});
+
+function guardarObsSorting(soitem, texto) {
+  if (!soitem) return;
+
+function cerrarVisor(){
+  visorIframe.src = "about:blank";
+  visorModal.style.display = "none";
+  window.removeEventListener("keydown", keyBlocker, {capture:true});
+  const ref = db.ref("sortingObservaciones/" + soitem);
+
+  if (!texto.trim()) {
+    ref.remove(); // borrar si está vacío
+    return;
+  }
+
+  ref.set({
+    comentario: texto.trim(),
+    fecha: new Date().toISOString()
+  });
+}
+
+// Evitar cierre por click interior
+$("visorCont").addEventListener("click", e=> e.stopPropagation());
+visorModal.addEventListener("click", cerrarVisor);
+let soitemModalActivo = null;
+
+/* ==================== AUDITORÍA DE USUARIOS ==================== */
+async function registrarActividad(accion, resultado, inicio = null, fin = null, lat = null, lon = null, distancia = null) {
+  try {
+    const user = usuarioPlanos || {};
+    const duracion = (inicio && fin) ? ((fin - inicio) / 1000).toFixed(2) : null; // en segundos
+
+    const registro = {
+      correo: user.email || "desconocido",
+      nombre: user.displayName || "Sin nombre",
+      accion,          // Ej: "Consulta API", "Consulta Planos", "Intento fuera de zona"
+      resultado,       // Ej: "Éxito", "Error", "Fuera de zona"
+      lat, lon, distancia,
+      duracion_seg: duracion,
+      fecha: new Date().toISOString()
+    };
+function actualizarSoloCeldasObservacion() {
+  const filas = document.querySelectorAll("#tablaPendientesTemper tbody tr");
+
+    // 🔹 Guardar sin bloquear la app (no se hace await)
+    firebase.database().ref("logs_usuarios").push(registro);
+  } catch (e) {
+    console.warn("⚠️ Error guardando log:", e);
+  }
+  filas.forEach(tr => {
+    const soitem = tr.cells[0].textContent.trim();
+    const nuevaObs = obsSortingMap[soitem] || "";
+    
+    const celda = tr.querySelector(".obs-cell");
+    if (celda && celda.innerText.trim() !== nuevaObs.trim()) {
+      celda.innerText = nuevaObs;
+      celda.classList.toggle("long-text", nuevaObs.length > 25);
+    }
+  });
+}
+
+
+</script>
+</body>
+</html>
+function mostrarObsModal(soitem, texto) {
+  soitemModalActivo = soitem;
+  document.getElementById("modalObsTexto").value = texto || "";
+  document.getElementById("modalObs").style.display = "flex";
+}
+
+function cerrarObsModal() {
+  document.getElementById("modalObs").style.display = "none";
+}
+
+function guardarObsDesdeModal() {
+  const texto = document.getElementById("modalObsTexto").value;
+  guardarObsSorting(soitemModalActivo, texto);
+
+  // actualizar input original
+  const input = document.querySelector(`input[data-soitem="${soitemModalActivo}"]`);
+  if (input) input.value = texto;
+
+  cerrarObsModal();
+}
+
+
+// Mostrar botón si hay filas resaltadas
+function actualizarBotonQuitarResaltado() {
+  const hayResaltadas = document.querySelectorAll("tr.destacado").length > 0;
+  document.getElementById("btnQuitarResaltado").style.display = hayResaltadas ? "inline-block" : "none";
+}
+
+// Mostrar botón si hay filtros activos
+function actualizarBotonQuitarFiltros() {
+  const tableId = getVisibleTableId();
+  if (!tableId) return;
+
+  let hayFiltro = false;
+  document.querySelectorAll(`#${tableId} thead .filter-content`).forEach(fc => {
+    fc.querySelectorAll('input[type="checkbox"]').forEach(cb => {
+      if (!cb.checked) hayFiltro = true;
+    });
+  });
+
+  const searchBox = document.getElementById("globalSearch");
+  if (searchBox && searchBox.value.trim() !== "") hayFiltro = true;
+
+  document.getElementById("btnQuitarFiltros").style.display = hayFiltro ? "inline-block" : "none";
+}
+
+// Escuchar clic en cualquier checkbox de filtros
+document.addEventListener("change", (e) => {
+  if (e.target.closest(".filter-options")) {
+    setTimeout(actualizarBotonQuitarFiltros, 10);
+  }
+});
+
+// Escuchar escritura en búsqueda global
+document.getElementById("globalSearch")?.addEventListener("input", () => {
+  actualizarBotonQuitarFiltros();
+});
+
+// Escuchar clics para actualizar botón de resaltado
+document.addEventListener("click", (e) => {
+  if (e.target.closest("tr")?.parentElement?.tagName === "TBODY") {
+    setTimeout(actualizarBotonQuitarResaltado, 10);
+  }
+});
+
+// Botón quitar resaltado
+document.getElementById("btnQuitarResaltado").addEventListener("click", () => {
+  document.querySelectorAll("tr.destacado").forEach(tr => tr.classList.remove("destacado"));
+  actualizarBotonQuitarResaltado();
+});
+
+// Botón quitar filtros
+document.getElementById("btnQuitarFiltros").addEventListener("click", () => {
+  const tableId = getVisibleTableId();
+  if (!tableId) return;
+
+  // Reset búsqueda global
+  const globalSearch = document.getElementById("globalSearch");
+  if (globalSearch) globalSearch.value = "";
+
+  // Marcar todos los checkboxes
+  document.querySelectorAll(`#${tableId} thead .filter-content`).forEach(fc => {
+    fc.querySelectorAll('.filter-options input[type="checkbox"]').forEach(cb => cb.checked = true);
+  });
+
+  // Aplicar filtros vacíos
+  document.querySelectorAll(`#${tableId} thead .filter-content`).forEach(fc => {
+    const col = Number(fc.dataset.col);
+    filterApply(tableId, col);
+  });
+
+  applyGlobalSearch("");
+  actualizarBotonQuitarFiltros();
+});
+
+/* ===========================
+   Init
+   =========================== */
+document.addEventListener('DOMContentLoaded',()=>{
+  showMenu('dashboard');
+  escucharUltimosEstadosInventario(); // 👈 empieza a escuchar estados en tiempo real
+});
+escucharObsSorting(); // 👈 Observaciones del módulo POR ENTREGAR
+
+// =========================================
+// C — Guardar la hora editada manualmente
+// =========================================
+function guardarHoraManual(horno, nuevaHora) {
+  if (!horno || !nuevaHora.trim()) return;
+
+  db.ref("ciclosActivos/" + horno + "/horaFin").set(nuevaHora.trim());
+}
+
+
+
+</script>
+
+<!-- Modal Observaciones Sorting -->
+<div id="modalObs" 
+     style="display:none; position:fixed; top:0; left:0; width:100%; height:100%;
+            background:#0008; backdrop-filter:blur(3px); 
+            align-items:center; justify-content:center; z-index:9999;">
+  
+  <div style="background:white; padding:20px; width:300px; border-radius:10px;">
+    <h3 style="margin-top:0;">Observación</h3>
+    <textarea id="modalObsTexto" 
+              style="width:100%; height:120px; font-size:14px;"></textarea>
+
+    <div style="text-align:right; margin-top:10px;">
+      <button onclick="cerrarObsModal()">Cerrar</button>
+      <button onclick="guardarObsDesdeModal()" style="background:#00e5ff; border:none;
+              padding:6px 12px; border-radius:6px;">Guardar</button>
+    </div>
+  </div>
+
+</div>
+
+</body>
+</html>
 
 
 
