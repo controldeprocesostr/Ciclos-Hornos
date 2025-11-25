@@ -461,7 +461,7 @@
 
 /* ==================== Firebase ==================== */
 const firebaseConfig = {
-  
+  apiKey: "AIzaSyAB4UlwaVJzc4U4VbmddLf4mejKAOvTufw",
   authDomain: "hornosapp-60887.firebaseapp.com",
   databaseURL: "https://hornosapp-60887-default-rtdb.firebaseio.com",
   projectId: "hornosapp-60887",
@@ -1312,51 +1312,30 @@ function regresarAPendientes(clave){
     .then(()=> actualizarVistaPendientes());
 }
 
+// 🔹 Botón "Actualizar" protegido por acceso y distancia
 $('btnActualizarInv').onclick = async () => {
   const b = $('btnActualizarInv');
-  const inicio = performance.now();
 
-  // 🚀 Disparamos ubicación en paralelo (sin await todavía)
-  const ubicacionPromise = verificarUbicacion();
-
-  // ✅ Verificamos permisos (sin depender del GPS)
+  // ✅ Verificamos permisos antes de llamar la API
   const acceso = await verificarAccesoCompleto();
-  const finPermiso = performance.now();
-
-  // Esperamos resultado de ubicación, pero sin bloquear si tarda
-  let lat = null, lon = null, distancia = null;
-  try {
-    const pos = await Promise.race([
-      ubicacionPromise,
-      new Promise(resolve => setTimeout(() => resolve({lat:null,lon:null,distancia:null}), 5000))
-    ]);
-    lat = pos.lat; lon = pos.lon; distancia = pos.distancia;
-  } catch { /* ignora */ }
-
   if (!acceso) {
-    await registrarActividad("Consulta API", "Sin autorización", inicio, finPermiso, lat, lon, distancia);
     alert("🚫 No puedes actualizar datos fuera de la zona o sin autorización.");
     return;
   }
 
+  // ✅ Si tiene acceso, ejecuta normalmente
   b.disabled = true;
   const old = b.textContent;
   b.textContent = "Cargando...";
-
   try {
-    const iniFetch = performance.now();
     await cargarPendientes();
-    const finFetch = performance.now();
-
-    await registrarActividad("Consulta API", "Éxito", iniFetch, finFetch, lat, lon, distancia);
   } catch (e) {
-    await registrarActividad("Consulta API", "Error", inicio, performance.now(), lat, lon, distancia);
     alert("Error: " + (e.message || e));
   }
-
   b.disabled = false;
   b.textContent = old;
 };
+
 // 🔹 Llamada inicial sin restricción (al abrir la vista)
 cargarPendientes();
 
@@ -1556,37 +1535,26 @@ function distanciaMetros(lat1, lon1, lat2, lon2) {
 // 📍 Verifica la ubicación actual del usuario
 async function verificarUbicacion() {
   return new Promise((resolve, reject) => {
-    if (!navigator.geolocation) return reject("Tu navegador no soporta geolocalización.");
-
-    let resuelto = false;
-
-    // fallback si tarda más de 8s
-    const timer = setTimeout(() => {
-      if (!resuelto) {
-        resuelto = true;
-        console.warn("⚠️ Tiempo de geolocalización agotado, usando valor nulo.");
-        resolve({ lat: null, lon: null, distancia: null });
-      }
-    }, 8000);
+    if (!navigator.geolocation) {
+      return reject("Tu navegador no soporta geolocalización.");
+    }
 
     navigator.geolocation.getCurrentPosition(
       pos => {
-        if (resuelto) return;
-        clearTimeout(timer);
-        resuelto = true;
         const lat = pos.coords.latitude;
         const lon = pos.coords.longitude;
         const distancia = distanciaMetros(lat, lon, ZONA_AUTORIZADA.lat, ZONA_AUTORIZADA.lon);
         resolve({ lat, lon, distancia });
       },
       err => {
-        if (resuelto) return;
-        clearTimeout(timer);
-        resuelto = true;
-        console.warn("Error ubicación:", err);
-        resolve({ lat: null, lon: null, distancia: null }); // devolvemos vacío pero no bloquea
+        switch (err.code) {
+          case 1: reject("Permiso de ubicación denegado."); break;
+          case 2: reject("Posición no disponible."); break;
+          case 3: reject("Tiempo de espera agotado."); break;
+          default: reject("Error desconocido."); break;
+        }
       },
-      { enableHighAccuracy: false, timeout: 7000, maximumAge: 60000 }
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
     );
   });
 }
@@ -1693,18 +1661,6 @@ function abrirVisorPlanos(nombre, url){
   visorIframe.setAttribute("allow", "fullscreen");
   visorIframe.setAttribute("style", "width:100%;height:100vh;border:none;");
 
-(async ()=>{
-  const inicio = performance.now();
-  try {
-    const { lat, lon, distancia } = await verificarUbicacion().catch(()=>({}));
-    const fin = performance.now();
-    await registrarActividad("Consulta Planos", "Éxito", inicio, fin, lat, lon, distancia);
-  } catch (e) {
-    console.warn("Error registrando actividad de plano:", e);
-  }
-})();
-
-
   // 🔹 Bloquear atajos de teclado (Ctrl+S / Ctrl+P / Ctrl+C / Ctrl+U)
   window.addEventListener("keydown", keyBlocker, {capture:true});
 
@@ -1733,55 +1689,9 @@ function cerrarVisor(){
 $("visorCont").addEventListener("click", e=> e.stopPropagation());
 visorModal.addEventListener("click", cerrarVisor);
 
-// =======================================
-// 📋 Registrar actividad de usuarios
-// =======================================
-async function registrarActividad(accion, resultado, inicio, fin, lat = null, lon = null, distancia = null) {
-  try {
-    const correo = (usuarioPlanos?.email || "desconocido").toLowerCase();
-    const nombre = usuarioPlanos?.displayName || "Sin nombre";
-
-    const duracionMs = (inicio && fin) ? (fin - inicio) : null;
-    const duracionMin = duracionMs ? (duracionMs / 60000).toFixed(2) : null;
-    const duracionSeg = duracionMs ? (duracionMs / 1000).toFixed(2) : null;
-
-    // 🕒 Formato legible "mm:ss"
-    let duracionFmt = "-";
-    if (duracionMs) {
-      const min = Math.floor(duracionMs / 60000);
-      const sec = Math.round((duracionMs % 60000) / 1000);
-      duracionFmt = `${min}m ${sec}s`;
-    }
-
-    const fecha = new Date().toLocaleString("es-CO", { timeZone: "America/Bogota" });
-
-    // ✅ Datos del registro
-    const registro = {
-      correo,
-      nombre,
-      accion,
-      resultado,
-      fecha,
-      duracion_min: duracionMin,
-      duracion_seg: duracionSeg,
-      duracion_fmt: duracionFmt,
-      distancia: distancia ? distancia.toFixed(0) : "-",
-      lat: lat || null,
-      lon: lon || null
-    };
-
-    // ✅ Guardar en Firebase con timestamp ordenado
-    const id = Date.now();
-    await firebase.database().ref("logs_usuarios/" + id).set(registro);
-
-    console.log("🧾 Log registrado:", registro);
-  } catch (err) {
-    console.error("❌ Error al registrar actividad:", err);
-  }
-}
-
-
 
 </script>
 </body>
 </html>
+
+
